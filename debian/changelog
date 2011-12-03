@@ -1,3 +1,9 @@
+seabios (1.6.3-2) unstable; urgency=low
+
+  * Add patch from 1.6.3.1 to fix usb boot paths. 
+
+ -- Vagrant Cascadian <vagrant@debian.org>  Fri, 02 Dec 2011 19:36:13 -0800
+
 seabios (1.6.3-1) experimental; urgency=low
 
   [ Michael Tokarev ]
