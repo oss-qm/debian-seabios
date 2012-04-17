@@ -7,6 +7,7 @@ seabios (1.7.0-1) UNRELEASED; urgency=low
     out of out/ directory (preparing for the next change), and
     change clean target accordingly
   * build and ship vgabios-{cirrus,stdvga,vmware,qxl,isavga}.bin
+  * patches/fix-==-in-shell.patch -- fix build error with dash
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 17 Apr 2012 14:22:01 +0400
 
