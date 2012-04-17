@@ -1,2 +1,2 @@
-out/bios.bin usr/share/seabios
+bios.bin usr/share/seabios
 optionrom/*.bin usr/share/seabios/optionrom

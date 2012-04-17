@@ -3,6 +3,9 @@ seabios (1.7.0-1) UNRELEASED; urgency=low
   * new upstream release (1.7.0), featuring vgabios.
   * drop 1.6.3.1 patch
   * do not require root in clean target
+  * split build procedure into several targets, move bios.bin
+    out of out/ directory (preparing for the next change), and
+    change clean target accordingly
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 17 Apr 2012 14:22:01 +0400
 

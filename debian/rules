@@ -10,25 +10,30 @@
 DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
-build: build-arch build-indep
-build-arch: build-stamp
-build-indep: build-stamp
-build-stamp:
+BUILD_TARGETS = bios.bin build-optionrom-stamp
+
+build build-arch build-indep: $(BUILD_TARGETS)
+
+bios.bin:
 	dh_testdir
 	$(MAKE) src/acpi-dsdt.hex
-	$(MAKE)
+	$(MAKE) out/bios.bin
+	mv out/bios.bin bios.bin
+
+build-optionrom-stamp:
 	$(MAKE) -C optionrom
-	chmod -x optionrom/*bin
+	chmod -x optionrom/*.bin
 	touch $@
 
 clean:
 	dh_testdir
-	rm -f build-stamp
-	$(MAKE) distclean
-	! [ -f optionrom/Makefile ] || $(MAKE) -C optionrom clean
+	rm -f $(BUILD_TARGETS)
+	rm -f .config .config.old
+	rm -rf out/
 	rm -f src/acpi-dsdt.aml
 	rm -f src/acpi-dsdt.hex
 	rm -f tools/*pyc
+	! [ -f optionrom/Makefile ] || $(MAKE) -C optionrom clean
 	dh_clean
 
 install: build
