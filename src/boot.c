@@ -14,6 +14,7 @@
 #include "cmos.h" // inb_cmos
 #include "paravirt.h" // romfile_loadfile
 #include "pci.h" //pci_bdf_to_*
+#include "usb.h" // struct usbdevice_s
 
 
 /****************************************************************
@@ -128,6 +129,20 @@ int bootprio_find_pci_device(struct pci_device *pci)
     return find_prio(desc);
 }
 
+int bootprio_find_scsi_device(struct pci_device *pci, int target, int lun)
+{
+    if (!CONFIG_BOOTORDER)
+        return -1;
+    if (!pci)
+        // support only pci machine for now
+        return -1;
+    // Find scsi drive - for example: /pci@i0cf8/scsi@5/channel@0/disk@1,0
+    char desc[256], *p;
+    p = build_pci_path(desc, sizeof(desc), "*", pci);
+    snprintf(p, desc+sizeof(desc)-p, "/*@0/*@%d,%d", target, lun);
+    return find_prio(desc);
+}
+
 int bootprio_find_ata_device(struct pci_device *pci, int chanid, int slave)
 {
     if (!CONFIG_BOOTORDER)
@@ -180,20 +195,26 @@ int bootprio_find_named_rom(const char *name, int instance)
     return find_prio(desc);
 }
 
-int bootprio_find_usb(struct pci_device *pci, u64 path)
+static char *
+build_usb_path(char *buf, int max, struct usbhub_s *hub)
+{
+    if (!hub->usbdev)
+        // Root hub - nothing to add.
+        return buf;
+    char *p = build_usb_path(buf, max, hub->usbdev->hub);
+    p += snprintf(p, buf+max-p, "/hub@%x", hub->usbdev->port+1);
+    return p;
+}
+
+int bootprio_find_usb(struct usbdevice_s *usbdev)
 {
     if (!CONFIG_BOOTORDER)
         return -1;
     // Find usb - for example: /pci@i0cf8/usb@1,2/hub@1/network@0/ethernet@0
-    int i;
     char desc[256], *p;
-    p = build_pci_path(desc, sizeof(desc), "usb", pci);
-    for (i=56; i>0; i-=8) {
-        int port = (path >> i) & 0xff;
-        if (port != 0xff)
-            p += snprintf(p, desc+sizeof(desc)-p, "/hub@%x", port);
-    }
-    snprintf(p, desc+sizeof(desc)-p, "/*@%x", (u32)(path & 0xff));
+    p = build_pci_path(desc, sizeof(desc), "usb", usbdev->hub->cntl->pci);
+    p = build_usb_path(p, desc+sizeof(desc)-p, usbdev->hub);
+    snprintf(p, desc+sizeof(desc)-p, "/*@%x", usbdev->port+1);
     return find_prio(desc);
 }
 
@@ -326,7 +347,7 @@ boot_add_bev(u16 seg, u16 bev, u16 desc, int prio)
 void
 boot_add_bcv(u16 seg, u16 ip, u16 desc, int prio)
 {
-    bootentry_add(IPL_TYPE_BCV, defPrio(prio, DEFAULT_PRIO)
+    bootentry_add(IPL_TYPE_BCV, defPrio(prio, DefaultHDPrio)
                   , SEGOFF(seg, ip).segoff
                   , desc ? MAKE_FLATPTR(seg, desc) : "Legacy option rom");
 }

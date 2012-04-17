@@ -14,62 +14,11 @@
 #include "pci_ids.h" // PCI_CLASS_DISPLAY_VGA
 #include "boot.h" // IPL
 #include "paravirt.h" // qemu_cfg_*
-
+#include "optionroms.h" // struct rom_header
 
 /****************************************************************
  * Definitions
  ****************************************************************/
-
-struct rom_header {
-    u16 signature;
-    u8 size;
-    u8 initVector[4];
-    u8 reserved[17];
-    u16 pcioffset;
-    u16 pnpoffset;
-} PACKED;
-
-struct pci_data {
-    u32 signature;
-    u16 vendor;
-    u16 device;
-    u16 vitaldata;
-    u16 dlen;
-    u8 drevision;
-    u8 class_lo;
-    u16 class_hi;
-    u16 ilen;
-    u16 irevision;
-    u8 type;
-    u8 indicator;
-    u16 reserved;
-} PACKED;
-
-struct pnp_data {
-    u32 signature;
-    u8 revision;
-    u8 len;
-    u16 nextoffset;
-    u8 reserved_08;
-    u8 checksum;
-    u32 devid;
-    u16 manufacturer;
-    u16 productname;
-    u8 type_lo;
-    u16 type_hi;
-    u8 dev_flags;
-    u16 bcv;
-    u16 dv;
-    u16 bev;
-    u16 reserved_1c;
-    u16 staticresource;
-} PACKED;
-
-#define OPTION_ROM_SIGNATURE 0xaa55
-#define OPTION_ROM_ALIGN 2048
-#define OPTION_ROM_INITVECTOR offsetof(struct rom_header, initVector[0])
-#define PCI_ROM_SIGNATURE 0x52494350 // PCIR
-#define PCIROM_CODETYPE_X86 0
 
 // The end of the last deployed rom.
 u32 RomEnd = BUILD_ROM_START;
@@ -439,19 +388,18 @@ optionrom_setup(void)
                          , getRomPriority(sources, rom, 0));
             continue;
         }
-        // PnP rom.
-        if (pnp->bev) {
-            // Can boot system - add to IPL list.
-            boot_add_bev(FLATPTR_TO_SEG(rom), pnp->bev, pnp->productname
-                         , getRomPriority(sources, rom, 0));
-        } else {
-            // Check for BCV (there may be multiple).
-            int instance = 0;
-            while (pnp && pnp->bcv) {
+        // PnP rom - check for BEV and BCV boot capabilities.
+        int instance = 0;
+        while (pnp) {
+            if (pnp->bev)
+                boot_add_bev(FLATPTR_TO_SEG(rom), pnp->bev, pnp->productname
+                             , getRomPriority(sources, rom, instance++));
+            else if (pnp->bcv)
                 boot_add_bcv(FLATPTR_TO_SEG(rom), pnp->bcv, pnp->productname
                              , getRomPriority(sources, rom, instance++));
-                pnp = get_pnp_next(rom, pnp);
-            }
+            else
+                break;
+            pnp = get_pnp_next(rom, pnp);
         }
     }
 }
@@ -475,7 +423,7 @@ vga_setup(void)
 
     // Load some config settings that impact VGA.
     EnforceChecksum = romfile_loadint("etc/optionroms-checksum", 1);
-    S3ResumeVgaInit = romfile_loadint("etc/s3-resume-vga-init", 0);
+    S3ResumeVgaInit = romfile_loadint("etc/s3-resume-vga-init", !CONFIG_COREBOOT);
     ScreenAndDebug = romfile_loadint("etc/screen-and-debug", 1);
 
     if (CONFIG_OPTIONROMS_DEPLOYED) {

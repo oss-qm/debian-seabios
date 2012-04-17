@@ -3,14 +3,14 @@
 
 // usb-ehci.c
 int ehci_init(struct pci_device *pci, int busid, struct pci_device *comppci);
+struct usbdevice_s;
+struct usb_endpoint_descriptor;
+struct usb_pipe *ehci_alloc_pipe(struct usbdevice_s *usbdev
+                                 , struct usb_endpoint_descriptor *epdesc);
 struct usb_pipe;
-void ehci_free_pipe(struct usb_pipe *p);
-struct usb_pipe *ehci_alloc_control_pipe(struct usb_pipe *dummy);
 int ehci_control(struct usb_pipe *p, int dir, const void *cmd, int cmdsize
                  , void *data, int datasize);
-struct usb_pipe *ehci_alloc_bulk_pipe(struct usb_pipe *dummy);
 int ehci_send_bulk(struct usb_pipe *p, int dir, void *data, int datasize);
-struct usb_pipe *ehci_alloc_intr_pipe(struct usb_pipe *dummy, int frameexp);
 int ehci_poll_intr(struct usb_pipe *p, void *data);
 
 

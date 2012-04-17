@@ -18,15 +18,14 @@ static inline void irq_enable(void)
     asm volatile("sti": : :"memory");
 }
 
-static inline unsigned long irq_save(void)
+static inline u32 save_flags(void)
 {
-    unsigned long flags;
-    asm volatile("pushfl ; popl %0" : "=g" (flags): :"memory");
-    irq_disable();
+    u32 flags;
+    asm volatile("pushfl ; popl %0" : "=rm" (flags));
     return flags;
 }
 
-static inline void irq_restore(unsigned long flags)
+static inline void restore_flags(u32 flags)
 {
     asm volatile("pushl %0 ; popfl" : : "g" (flags) : "memory", "cc");
 }
@@ -51,10 +50,11 @@ static inline void wbinvd(void)
     asm volatile("wbinvd": : :"memory");
 }
 
+#define CPUID_TSC (1 << 4)
 #define CPUID_MSR (1 << 5)
 #define CPUID_APIC (1 << 9)
 #define CPUID_MTRR (1 << 12)
-static inline void cpuid(u32 index, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx)
+static inline void __cpuid(u32 index, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx)
 {
     asm("cpuid"
         : "=a" (*eax), "=b" (*ebx), "=c" (*ecx), "=d" (*edx)
@@ -129,6 +129,11 @@ static inline u32 cpu_to_le32(u32 x)
     return x;
 }
 
+static inline u32 le32_to_cpu(u32 x)
+{
+    return x;
+}
+
 static inline u32 getesp(void) {
     u32 esp;
     asm("movl %%esp, %0" : "=rm"(esp));
@@ -191,6 +196,7 @@ struct descloc_s {
 } PACKED;
 
 // util.c
+void cpuid(u32 index, u32 *eax, u32 *ebx, u32 *ecx, u32 *edx);
 struct bregs;
 inline void call16(struct bregs *callregs);
 inline void call16big(struct bregs *callregs);
@@ -321,9 +327,7 @@ void lpt_setup(void);
 // clock.c
 #define PIT_TICK_RATE 1193180   // Underlying HZ of PIT
 #define PIT_TICK_INTERVAL 65536 // Default interval for 18.2Hz timer
-static inline int check_tsc(u64 end) {
-    return (s64)(rdtscll() - end) > 0;
-}
+int check_tsc(u64 end);
 void timer_setup(void);
 void ndelay(u32 count);
 void udelay(u32 count);

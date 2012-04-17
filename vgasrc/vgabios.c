@@ -1,65 +1,85 @@
 // VGA bios implementation
 //
-// Copyright (C) 2009  Kevin O'Connor <kevin@koconnor.net>
+// Copyright (C) 2009-2012  Kevin O'Connor <kevin@koconnor.net>
 // Copyright (C) 2001-2008 the LGPL VGABios developers Team
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-
-// TODO:
-//  * review correctness of converted asm by comparing with RBIL
-//
-//  * convert vbe/clext code
-
 #include "bregs.h" // struct bregs
 #include "biosvar.h" // GET_BDA
 #include "util.h" // memset
-#include "vgatables.h" // find_vga_entry
+#include "vgabios.h" // calc_page_size
+#include "optionroms.h" // struct pci_data
+#include "config.h" // CONFIG_*
+#include "stdvga.h" // stdvga_set_cursor_shape
+#include "clext.h" // clext_1012
+#include "vgahw.h" // vgahw_set_mode
+#include "vbe.h" // VBE_RETURN_STATUS_FAILED
+#include "pci.h" // pci_config_readw
+#include "pci_regs.h" // PCI_VENDOR_ID
 
-// XXX
-#define CONFIG_VBE 0
-#define CONFIG_CIRRUS 0
+// Standard Video Save Pointer Table
+struct VideoSavePointer_s {
+    struct segoff_s videoparam;
+    struct segoff_s paramdynamicsave;
+    struct segoff_s textcharset;
+    struct segoff_s graphcharset;
+    struct segoff_s secsavepointer;
+    u8 reserved[8];
+} PACKED;
 
-// XXX
-#define DEBUG_VGA_POST 1
-#define DEBUG_VGA_10 3
+static struct VideoSavePointer_s video_save_pointer_table VAR16;
 
-#define SET_VGA(var, val) SET_FARVAR(get_global_seg(), (var), (val))
+struct VideoParam_s video_param_table[29] VAR16;
+
+
+/****************************************************************
+ * PCI Data
+ ****************************************************************/
+
+struct pci_data rom_pci_data VAR16VISIBLE = {
+    .signature = PCI_ROM_SIGNATURE,
+    .vendor = CONFIG_VGA_VID,
+    .device = CONFIG_VGA_DID,
+    .dlen = 0x18,
+    .class_hi = 0x300,
+    .irevision = 1,
+    .type = PCIROM_CODETYPE_X86,
+    .indicator = 0x80,
+};
 
 
 /****************************************************************
  * Helper functions
  ****************************************************************/
 
-static inline void
-call16_vgaint(u32 eax, u32 ebx)
+// Return the bits per pixel in system memory for a given mode.
+int
+vga_bpp(struct vgamode_s *vmode_g)
 {
-    asm volatile(
-        "int $0x10\n"
-        "cli\n"
-        "cld"
-        :
-        : "a"(eax), "b"(ebx)
-        : "cc", "memory");
+    switch (GET_GLOBAL(vmode_g->memmodel)) {
+    case MM_TEXT:
+        return 16;
+    case MM_PLANAR:
+        return 1;
+    }
+    u8 depth = GET_GLOBAL(vmode_g->depth);
+    if (depth > 8)
+        return ALIGN(depth, 8);
+    return depth;
 }
 
-static void
-perform_gray_scale_summing(u16 start, u16 count)
+u16
+calc_page_size(u8 memmodel, u16 width, u16 height)
 {
-    vgahw_screen_disable();
-    int i;
-    for (i = start; i < start+count; i++) {
-        u8 rgb[3];
-        vgahw_get_dac_regs(GET_SEG(SS), rgb, i, 1);
-
-        // intensity = ( 0.3 * Red ) + ( 0.59 * Green ) + ( 0.11 * Blue )
-        u16 intensity = ((77 * rgb[0] + 151 * rgb[1] + 28 * rgb[2]) + 0x80) >> 8;
-        if (intensity > 0x3f)
-            intensity = 0x3f;
-
-        vgahw_set_dac_regs(GET_SEG(SS), rgb, i, 1);
+    switch (memmodel) {
+    case MM_TEXT:
+        return ALIGN(width * height * 2, 2*1024);
+    case MM_CGA:
+        return 16*1024;
+    default:
+        return ALIGN(width * height / 8, 8*1024);
     }
-    vgahw_screen_enable();
 }
 
 static void
@@ -80,7 +100,7 @@ set_cursor_shape(u8 start, u8 end)
             start = ((end + 1) * cheight / 8) - 2;
         end = ((end + 1) * cheight / 8) - 1;
     }
-    vgahw_set_cursor_shape(start, end);
+    stdvga_set_cursor_shape(start, end);
 }
 
 static u16
@@ -95,27 +115,24 @@ get_cursor_shape(u8 page)
 static void
 set_cursor_pos(struct cursorpos cp)
 {
+    u8 page = cp.page, x = cp.x, y = cp.y;
+
     // Should not happen...
-    if (cp.page > 7)
+    if (page > 7)
         return;
 
     // Bios cursor pos
-    SET_BDA(cursor_pos[cp.page], (cp.y << 8) | cp.x);
+    SET_BDA(cursor_pos[page], (y << 8) | x);
 
     // Set the hardware cursor
     u8 current = GET_BDA(video_page);
     if (cp.page != current)
         return;
 
-    // Get the dimensions
-    u16 nbcols = GET_BDA(video_cols);
-    u16 nbrows = GET_BDA(video_rows) + 1;
-
-    // Calculate the address knowing nbcols nbrows and page num
-    u16 address = (SCREEN_IO_START(nbcols, nbrows, cp.page)
-                   + cp.x + cp.y * nbcols);
-
-    vgahw_set_cursor_pos(address);
+    // Calculate the memory address
+    int address = (GET_BDA(video_pagesize) * page
+                   + (x + y * GET_BDA(video_cols)) * 2);
+    stdvga_set_cursor_pos(address);
 }
 
 static struct cursorpos
@@ -141,33 +158,19 @@ set_active_page(u8 page)
         return;
 
     // Get the mode
-    struct vgamode_s *vmode_g = find_vga_entry(GET_BDA(video_mode));
+    struct vgamode_s *vmode_g = get_current_mode();
     if (!vmode_g)
         return;
 
-    // Get pos curs pos for the right page
+    // Get cursor pos for the given page
     struct cursorpos cp = get_cursor_pos(page);
 
-    u16 address;
-    if (GET_GLOBAL(vmode_g->memmodel) & TEXT) {
-        // Get the dimensions
-        u16 nbcols = GET_BDA(video_cols);
-        u16 nbrows = GET_BDA(video_rows) + 1;
-
-        // Calculate the address knowing nbcols nbrows and page num
-        address = SCREEN_MEM_START(nbcols, nbrows, page);
-        SET_BDA(video_pagestart, address);
-
-        // Start address
-        address = SCREEN_IO_START(nbcols, nbrows, page);
-    } else {
-        struct VideoParam_s *vparam_g = GET_GLOBAL(vmode_g->vparam);
-        address = page * GET_GLOBAL(vparam_g->slength);
-    }
-
-    vgahw_set_active_page(address);
+    // Calculate memory address of start of page
+    int address = GET_BDA(video_pagesize) * page;
+    vgahw_set_displaystart(vmode_g, address);
 
     // And change the BIOS page
+    SET_BDA(video_pagestart, address);
     SET_BDA(video_page, page);
 
     dprintf(1, "Set active page %02x address %04x\n", page, address);
@@ -179,17 +182,17 @@ set_active_page(u8 page)
 static void
 set_scan_lines(u8 lines)
 {
-    vgahw_set_scan_lines(lines);
+    stdvga_set_scan_lines(lines);
     if (lines == 8)
         set_cursor_shape(0x06, 0x07);
     else
         set_cursor_shape(lines - 4, lines - 3);
     SET_BDA(char_height, lines);
-    u16 vde = vgahw_get_vde();
+    u16 vde = stdvga_get_vde();
     u8 rows = vde / lines;
     SET_BDA(video_rows, rows - 1);
     u16 cols = GET_BDA(video_cols);
-    SET_BDA(video_pagesize, rows * cols * 2);
+    SET_BDA(video_pagesize, calc_page_size(MM_TEXT, cols, rows));
 }
 
 
@@ -233,9 +236,9 @@ write_teletype(struct cursorpos *pcp, struct carattr ca)
         cp.y++;
         break;
     case '\t':
+        ca.car = ' ';
         do {
-            struct carattr dummyca = {' ', ca.attr, ca.use_attr};
-            vgafb_write_char(cp, dummyca);
+            vgafb_write_char(cp, ca);
             cp.x++;
         } while (cp.x < nbcols && cp.x % 8);
         break;
@@ -260,43 +263,15 @@ write_teletype(struct cursorpos *pcp, struct carattr ca)
     scroll_one(nbrows, nbcols, cp.page);
 }
 
-// Write out a buffer of alternating characters and attributes.
-static void
-write_attr_string(struct cursorpos *pcp, u16 count, u16 seg, u8 *offset_far)
-{
-    while (count--) {
-        u8 car = GET_FARVAR(seg, *offset_far);
-        offset_far++;
-        u8 attr = GET_FARVAR(seg, *offset_far);
-        offset_far++;
-
-        struct carattr ca = {car, attr, 1};
-        write_teletype(pcp, ca);
-    }
-}
-
-// Write out a buffer of characters.
-static void
-write_string(struct cursorpos *pcp, u8 attr, u16 count, u16 seg, u8 *offset_far)
-{
-    while (count--) {
-        u8 car = GET_FARVAR(seg, *offset_far);
-        offset_far++;
-
-        struct carattr ca = {car, attr, 1};
-        write_teletype(pcp, ca);
-    }
-}
-
 
 /****************************************************************
  * Save and restore bda state
  ****************************************************************/
 
-static void
+void
 save_bda_state(u16 seg, struct saveBDAstate *info)
 {
-    SET_FARVAR(seg, info->video_mode, GET_BDA(video_mode));
+    SET_FARVAR(seg, info->video_mode, GET_BDA(vbe_mode));
     SET_FARVAR(seg, info->video_cols, GET_BDA(video_cols));
     SET_FARVAR(seg, info->video_pagesize, GET_BDA(video_pagesize));
     SET_FARVAR(seg, info->crtc_address, GET_BDA(crtc_address));
@@ -306,7 +281,7 @@ save_bda_state(u16 seg, struct saveBDAstate *info)
     SET_FARVAR(seg, info->video_switches, GET_BDA(video_switches));
     SET_FARVAR(seg, info->modeset_ctl, GET_BDA(modeset_ctl));
     SET_FARVAR(seg, info->cursor_type, GET_BDA(cursor_type));
-    u16 i;
+    int i;
     for (i=0; i<8; i++)
         SET_FARVAR(seg, info->cursor_pos[i], GET_BDA(cursor_pos[i]));
     SET_FARVAR(seg, info->video_pagestart, GET_BDA(video_pagestart));
@@ -316,10 +291,15 @@ save_bda_state(u16 seg, struct saveBDAstate *info)
     SET_FARVAR(seg, info->font1, GET_IVT(0x43));
 }
 
-static void
+void
 restore_bda_state(u16 seg, struct saveBDAstate *info)
 {
-    SET_BDA(video_mode, GET_FARVAR(seg, info->video_mode));
+    u16 mode = GET_FARVAR(seg, info->video_mode);
+    SET_BDA(vbe_mode, mode);
+    if (mode < 0x100)
+        SET_BDA(video_mode, mode);
+    else
+        SET_BDA(video_mode, 0xff);
     SET_BDA(video_cols, GET_FARVAR(seg, info->video_cols));
     SET_BDA(video_pagesize, GET_FARVAR(seg, info->video_pagesize));
     SET_BDA(crtc_address, GET_FARVAR(seg, info->crtc_address));
@@ -329,7 +309,7 @@ restore_bda_state(u16 seg, struct saveBDAstate *info)
     SET_BDA(video_switches, GET_FARVAR(seg, info->video_switches));
     SET_BDA(modeset_ctl, GET_FARVAR(seg, info->modeset_ctl));
     SET_BDA(cursor_type, GET_FARVAR(seg, info->cursor_type));
-    u16 i;
+    int i;
     for (i = 0; i < 8; i++)
         SET_BDA(cursor_pos[i], GET_FARVAR(seg, info->cursor_pos[i]));
     SET_BDA(video_pagestart, GET_FARVAR(seg, info->video_pagestart));
@@ -341,113 +321,69 @@ restore_bda_state(u16 seg, struct saveBDAstate *info)
 
 
 /****************************************************************
- * VGA int 10 handler
+ * Mode setting
  ****************************************************************/
 
-// set video mode
-static void
-handle_1000(struct bregs *regs)
+struct vgamode_s *
+get_current_mode(void)
 {
-    u8 noclearmem = regs->al & 0x80;
-    u8 mode = regs->al & 0x7f;
+    return vgahw_find_mode(GET_BDA(vbe_mode) & ~MF_VBEFLAGS);
+}
 
-    // Set regs->al
-    if (mode > 7)
-        regs->al = 0x20;
-    else if (mode == 6)
-        regs->al = 0x3f;
-    else
-        regs->al = 0x30;
-
-    if (CONFIG_CIRRUS)
-        cirrus_set_video_mode(mode);
-
-    if (CONFIG_VBE)
-        if (vbe_has_vbe_display())
-            dispi_set_enable(VBE_DISPI_DISABLED);
-
-    // find the entry in the video modes
-    struct vgamode_s *vmode_g = find_vga_entry(mode);
-    dprintf(1, "mode search %02x found %p\n", mode, vmode_g);
+// Setup BDA after a mode switch.
+int
+vga_set_mode(int mode, int flags)
+{
+    dprintf(1, "set VGA mode %x\n", mode);
+    struct vgamode_s *vmode_g = vgahw_find_mode(mode);
     if (!vmode_g)
-        return;
+        return VBE_RETURN_STATUS_FAILED;
 
-    // Read the bios mode set control
-    u8 modeset_ctl = GET_BDA(modeset_ctl);
-
-    // Then we know the number of lines
-// FIXME
-
-    // if palette loading (bit 3 of modeset ctl = 0)
-    if ((modeset_ctl & 0x08) == 0) {    // Set the PEL mask
-        vgahw_set_pel_mask(GET_GLOBAL(vmode_g->pelmask));
-
-        // From which palette
-        u8 *palette_g = GET_GLOBAL(vmode_g->dac);
-        u16 palsize = GET_GLOBAL(vmode_g->dacsize) / 3;
-
-        // Always 256*3 values
-        vgahw_set_dac_regs(get_global_seg(), palette_g, 0, palsize);
-        u16 i;
-        for (i = palsize; i < 0x0100; i++) {
-            static u8 rgb[3] VAR16;
-            vgahw_set_dac_regs(get_global_seg(), rgb, i, 1);
-        }
-
-        if ((modeset_ctl & 0x02) == 0x02)
-            perform_gray_scale_summing(0x00, 0x100);
-    }
-
-    struct VideoParam_s *vparam_g = GET_GLOBAL(vmode_g->vparam);
-    vgahw_set_mode(vparam_g);
-
-    if (noclearmem == 0x00)
-        clear_screen(vmode_g);
-
-    // Set CRTC address VGA or MDA
-    u16 crtc_addr = VGAREG_VGA_CRTC_ADDRESS;
-    if (GET_GLOBAL(vmode_g->memmodel) == MTEXT)
-        crtc_addr = VGAREG_MDA_CRTC_ADDRESS;
+    int ret = vgahw_set_mode(vmode_g, flags);
+    if (ret)
+        return ret;
 
     // Set the BIOS mem
-    u16 cheight = GET_GLOBAL(vparam_g->cheight);
-    SET_BDA(video_mode, mode);
-    SET_BDA(video_cols, GET_GLOBAL(vparam_g->twidth));
-    SET_BDA(video_pagesize, GET_GLOBAL(vparam_g->slength));
-    SET_BDA(crtc_address, crtc_addr);
-    SET_BDA(video_rows, GET_GLOBAL(vparam_g->theightm1));
+    int width = GET_GLOBAL(vmode_g->width);
+    int height = GET_GLOBAL(vmode_g->height);
+    u8 memmodel = GET_GLOBAL(vmode_g->memmodel);
+    int cheight = GET_GLOBAL(vmode_g->cheight);
+    if (mode < 0x100)
+        SET_BDA(video_mode, mode);
+    else
+        SET_BDA(video_mode, 0xff);
+    SET_BDA(vbe_mode, mode | (flags & MF_VBEFLAGS));
+    if (memmodel == MM_TEXT) {
+        SET_BDA(video_cols, width);
+        SET_BDA(video_rows, height-1);
+        SET_BDA(cursor_type, 0x0607);
+    } else {
+        int cwidth = GET_GLOBAL(vmode_g->cwidth);
+        SET_BDA(video_cols, width / cwidth);
+        SET_BDA(video_rows, (height / cheight) - 1);
+        SET_BDA(cursor_type, 0x0000);
+    }
+    SET_BDA(video_pagesize, calc_page_size(memmodel, width, height));
+    SET_BDA(crtc_address, stdvga_get_crtc());
     SET_BDA(char_height, cheight);
-    SET_BDA(video_ctl, (0x60 | noclearmem));
+    SET_BDA(video_ctl, 0x60 | (flags & MF_NOCLEARMEM ? 0x80 : 0x00));
     SET_BDA(video_switches, 0xF9);
     SET_BDA(modeset_ctl, GET_BDA(modeset_ctl) & 0x7f);
+    int i;
+    for (i=0; i<8; i++)
+        SET_BDA(cursor_pos[i], 0x0000);
+    SET_BDA(video_pagestart, 0x0000);
+    SET_BDA(video_page, 0x00);
 
     // FIXME We nearly have the good tables. to be reworked
     SET_BDA(dcc_index, 0x08);   // 8 is VGA should be ok for now
     SET_BDA(video_savetable
-            , SEGOFF(get_global_seg(), (u32)video_save_pointer_table));
+            , SEGOFF(get_global_seg(), (u32)&video_save_pointer_table));
 
     // FIXME
     SET_BDA(video_msr, 0x00); // Unavailable on vanilla vga, but...
     SET_BDA(video_pal, 0x00); // Unavailable on vanilla vga, but...
 
-    // Set cursor shape
-    if (GET_GLOBAL(vmode_g->memmodel) & TEXT)
-        set_cursor_shape(0x06, 0x07);
-    // Set cursor pos for page 0..7
-    int i;
-    for (i = 0; i < 8; i++) {
-        struct cursorpos cp = {0, 0, i};
-        set_cursor_pos(cp);
-    }
-
-    // Set active page 0
-    set_active_page(0x00);
-
-    // Write the fonts in memory
-    if (GET_GLOBAL(vmode_g->memmodel) & TEXT) {
-        call16_vgaint(0x1104, 0);
-        call16_vgaint(0x1103, 0);
-    }
     // Set the ints 0x1F and 0x43
     SET_IVT(0x1f, SEGOFF(get_global_seg(), (u32)&vgafont8[128 * 8]));
 
@@ -462,6 +398,33 @@ handle_1000(struct bregs *regs)
         SET_IVT(0x43, SEGOFF(get_global_seg(), (u32)vgafont16));
         break;
     }
+
+    return 0;
+}
+
+
+/****************************************************************
+ * VGA int 10 handler
+ ****************************************************************/
+
+static void
+handle_1000(struct bregs *regs)
+{
+    int mode = regs->al & 0x7f;
+
+    // Set regs->al
+    if (mode > 7)
+        regs->al = 0x20;
+    else if (mode == 6)
+        regs->al = 0x3f;
+    else
+        regs->al = 0x30;
+
+    int flags = GET_BDA(modeset_ctl) & (MF_NOPALETTE|MF_GRAYSUM);
+    if (regs->al & 0x80)
+        flags |= MF_NOCLEARMEM;
+
+    vga_set_mode(mode, flags);
 }
 
 static void
@@ -503,24 +466,24 @@ handle_1005(struct bregs *regs)
 static void
 verify_scroll(struct bregs *regs, int dir)
 {
-    u8 page = GET_BDA(video_page);
-    struct cursorpos ul = {regs->cl, regs->ch, page};
-    struct cursorpos lr = {regs->dl, regs->dh, page};
-
+    u8 ulx = regs->cl, uly = regs->ch, lrx = regs->dl, lry = regs->dh;
     u16 nbrows = GET_BDA(video_rows) + 1;
-    if (lr.y >= nbrows)
-        lr.y = nbrows - 1;
+    if (lry >= nbrows)
+        lry = nbrows - 1;
     u16 nbcols = GET_BDA(video_cols);
-    if (lr.x >= nbcols)
-        lr.x = nbcols - 1;
+    if (lrx >= nbcols)
+        lrx = nbcols - 1;
 
-    if (ul.x > lr.x || ul.y > lr.y)
+    if (ulx > lrx || uly > lry)
         return;
 
-    u16 nblines = regs->al;
-    if (!nblines || nblines > lr.y - ul.y + 1)
-        nblines = lr.y - ul.y + 1;
+    int nblines = regs->al;
+    if (!nblines || nblines > lry - uly + 1)
+        nblines = lry - uly + 1;
 
+    u8 page = GET_BDA(video_page);
+    struct cursorpos ul = {ulx, uly, page};
+    struct cursorpos lr = {lrx, lry, page};
     vgafb_scroll(dir * nblines, regs->bh, ul, lr);
 }
 
@@ -547,10 +510,15 @@ handle_1008(struct bregs *regs)
 static void noinline
 write_chars(u8 page, struct carattr ca, u16 count)
 {
+    u16 nbcols = GET_BDA(video_cols);
     struct cursorpos cp = get_cursor_pos(page);
     while (count--) {
         vgafb_write_char(cp, ca);
         cp.x++;
+        if (cp.x >= nbcols) {
+            cp.x -= nbcols;
+            cp.y++;
+        }
     }
 }
 
@@ -572,13 +540,13 @@ handle_100a(struct bregs *regs)
 static void
 handle_100b00(struct bregs *regs)
 {
-    vgahw_set_border_color(regs->bl);
+    stdvga_set_border_color(regs->bl);
 }
 
 static void
 handle_100b01(struct bregs *regs)
 {
-    vgahw_set_palette(regs->bl);
+    stdvga_set_palette(regs->bl);
 }
 
 static void
@@ -637,25 +605,25 @@ handle_101000(struct bregs *regs)
 {
     if (regs->bl > 0x14)
         return;
-    vgahw_set_single_palette_reg(regs->bl, regs->bh);
+    stdvga_attr_write(regs->bl, regs->bh);
 }
 
 static void
 handle_101001(struct bregs *regs)
 {
-    vgahw_set_overscan_border_color(regs->bh);
+    stdvga_set_overscan_border_color(regs->bh);
 }
 
 static void
 handle_101002(struct bregs *regs)
 {
-    vgahw_set_all_palette_reg(regs->es, (u8*)(regs->dx + 0));
+    stdvga_set_all_palette_reg(regs->es, (u8*)(regs->dx + 0));
 }
 
 static void
 handle_101003(struct bregs *regs)
 {
-    vgahw_toggle_intensity(regs->bl);
+    stdvga_toggle_intensity(regs->bl);
 }
 
 static void
@@ -663,45 +631,45 @@ handle_101007(struct bregs *regs)
 {
     if (regs->bl > 0x14)
         return;
-    regs->bh = vgahw_get_single_palette_reg(regs->bl);
+    regs->bh = stdvga_attr_read(regs->bl);
 }
 
 static void
 handle_101008(struct bregs *regs)
 {
-    regs->bh = vgahw_get_overscan_border_color();
+    regs->bh = stdvga_get_overscan_border_color();
 }
 
 static void
 handle_101009(struct bregs *regs)
 {
-    vgahw_get_all_palette_reg(regs->es, (u8*)(regs->dx + 0));
+    stdvga_get_all_palette_reg(regs->es, (u8*)(regs->dx + 0));
 }
 
 static void noinline
 handle_101010(struct bregs *regs)
 {
     u8 rgb[3] = {regs->dh, regs->ch, regs->cl};
-    vgahw_set_dac_regs(GET_SEG(SS), rgb, regs->bx, 1);
+    stdvga_dac_write(GET_SEG(SS), rgb, regs->bx, 1);
 }
 
 static void
 handle_101012(struct bregs *regs)
 {
-    vgahw_set_dac_regs(regs->es, (u8*)(regs->dx + 0), regs->bx, regs->cx);
+    stdvga_dac_write(regs->es, (u8*)(regs->dx + 0), regs->bx, regs->cx);
 }
 
 static void
 handle_101013(struct bregs *regs)
 {
-    vgahw_select_video_dac_color_page(regs->bl, regs->bh);
+    stdvga_select_video_dac_color_page(regs->bl, regs->bh);
 }
 
 static void noinline
 handle_101015(struct bregs *regs)
 {
     u8 rgb[3];
-    vgahw_get_dac_regs(GET_SEG(SS), rgb, regs->bx, 1);
+    stdvga_dac_read(GET_SEG(SS), rgb, regs->bx, 1);
     regs->dh = rgb[0];
     regs->ch = rgb[1];
     regs->cl = rgb[2];
@@ -710,31 +678,31 @@ handle_101015(struct bregs *regs)
 static void
 handle_101017(struct bregs *regs)
 {
-    vgahw_get_dac_regs(regs->es, (u8*)(regs->dx + 0), regs->bx, regs->cx);
+    stdvga_dac_read(regs->es, (u8*)(regs->dx + 0), regs->bx, regs->cx);
 }
 
 static void
 handle_101018(struct bregs *regs)
 {
-    vgahw_set_pel_mask(regs->bl);
+    stdvga_pelmask_write(regs->bl);
 }
 
 static void
 handle_101019(struct bregs *regs)
 {
-    regs->bl = vgahw_get_pel_mask();
+    regs->bl = stdvga_pelmask_read();
 }
 
 static void
 handle_10101a(struct bregs *regs)
 {
-    vgahw_read_video_dac_state(&regs->bl, &regs->bh);
+    stdvga_read_video_dac_state(&regs->bl, &regs->bh);
 }
 
 static void
 handle_10101b(struct bregs *regs)
 {
-    perform_gray_scale_summing(regs->bx, regs->cx);
+    stdvga_perform_gray_scale_summing(regs->bx, regs->cx);
 }
 
 static void
@@ -771,60 +739,60 @@ handle_1010(struct bregs *regs)
 static void
 handle_101100(struct bregs *regs)
 {
-    vgafb_load_font(regs->es, (void*)(regs->bp+0), regs->cx
-                    , regs->dx, regs->bl, regs->bh);
+    stdvga_load_font(regs->es, (void*)(regs->bp+0), regs->cx
+                     , regs->dx, regs->bl, regs->bh);
 }
 
 static void
 handle_101101(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont14, 0x100, 0, regs->bl, 14);
+    stdvga_load_font(get_global_seg(), vgafont14, 0x100, 0, regs->bl, 14);
 }
 
 static void
 handle_101102(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont8, 0x100, 0, regs->bl, 8);
+    stdvga_load_font(get_global_seg(), vgafont8, 0x100, 0, regs->bl, 8);
 }
 
 static void
 handle_101103(struct bregs *regs)
 {
-    vgahw_set_text_block_specifier(regs->bl);
+    stdvga_set_text_block_specifier(regs->bl);
 }
 
 static void
 handle_101104(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont16, 0x100, 0, regs->bl, 16);
+    stdvga_load_font(get_global_seg(), vgafont16, 0x100, 0, regs->bl, 16);
 }
 
 static void
 handle_101110(struct bregs *regs)
 {
-    vgafb_load_font(regs->es, (void*)(regs->bp+0), regs->cx
-                    , regs->dx, regs->bl, regs->bh);
+    stdvga_load_font(regs->es, (void*)(regs->bp+0), regs->cx
+                     , regs->dx, regs->bl, regs->bh);
     set_scan_lines(regs->bh);
 }
 
 static void
 handle_101111(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont14, 0x100, 0, regs->bl, 14);
+    stdvga_load_font(get_global_seg(), vgafont14, 0x100, 0, regs->bl, 14);
     set_scan_lines(14);
 }
 
 static void
 handle_101112(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont8, 0x100, 0, regs->bl, 8);
+    stdvga_load_font(get_global_seg(), vgafont8, 0x100, 0, regs->bl, 8);
     set_scan_lines(8);
 }
 
 static void
 handle_101114(struct bregs *regs)
 {
-    vgafb_load_font(get_global_seg(), vgafont16, 0x100, 0, regs->bl, 16);
+    stdvga_load_font(get_global_seg(), vgafont16, 0x100, 0, regs->bl, 16);
     set_scan_lines(16);
 }
 
@@ -876,7 +844,7 @@ handle_101130(struct bregs *regs)
     regs->cx = GET_BDA(char_height) & 0xff;
 
     // Set Highest char row
-    regs->dx = GET_BDA(video_rows);
+    regs->dl = GET_BDA(video_rows);
 }
 
 static void
@@ -957,7 +925,7 @@ handle_101231(struct bregs *regs)
 static void
 handle_101232(struct bregs *regs)
 {
-    vgahw_enable_video_addressing(regs->al);
+    stdvga_enable_video_addressing(regs->al);
     regs->al = 0x12;
 }
 
@@ -1002,6 +970,11 @@ handle_1012XX(struct bregs *regs)
 static void
 handle_1012(struct bregs *regs)
 {
+    if (CONFIG_VGA_CIRRUS && regs->bl >= 0x80) {
+        clext_1012(regs);
+        return;
+    }
+
     switch (regs->bl) {
     case 0x10: handle_101210(regs); break;
     case 0x30: handle_101230(regs); break;
@@ -1013,8 +986,6 @@ handle_1012(struct bregs *regs)
     case 0x36: handle_101236(regs); break;
     default:   handle_1012XX(regs); break;
     }
-
-    // XXX - cirrus has 1280, 1281, 1282, 1285, 129a, 12a0, 12a1, 12a2, 12ae
 }
 
 
@@ -1022,17 +993,29 @@ handle_1012(struct bregs *regs)
 static void noinline
 handle_1013(struct bregs *regs)
 {
-    struct cursorpos cp = {regs->dl, regs->dh, regs->bh};
-    // if row=0xff special case : use current cursor position
-    if (cp.y == 0xff)
-        cp = get_cursor_pos(cp.page);
-    u8 flag = regs->al;
-    if (flag & 2)
-        write_attr_string(&cp, regs->cx, regs->es, (void*)(regs->bp + 0));
+    struct cursorpos cp;
+    if (regs->dh == 0xff)
+        // if row=0xff special case : use current cursor position
+        cp = get_cursor_pos(regs->bh);
     else
-        write_string(&cp, regs->bl, regs->cx, regs->es, (void*)(regs->bp + 0));
+        cp = (struct cursorpos) {regs->dl, regs->dh, regs->bh};
 
-    if (flag & 1)
+    u16 count = regs->cx;
+    u8 *offset_far = (void*)(regs->bp + 0);
+    u8 attr = regs->bl;
+    while (count--) {
+        u8 car = GET_FARVAR(regs->es, *offset_far);
+        offset_far++;
+        if (regs->al & 2) {
+            attr = GET_FARVAR(regs->es, *offset_far);
+            offset_far++;
+        }
+
+        struct carattr ca = {car, attr, 1};
+        write_teletype(&cp, ca);
+    }
+
+    if (regs->al & 1)
         set_cursor_pos(cp);
 }
 
@@ -1069,9 +1052,24 @@ handle_101a(struct bregs *regs)
 }
 
 
+static u8 static_functionality[0x10] VAR16 = {
+ /* 0 */ 0xff,  // All modes supported #1
+ /* 1 */ 0xe0,  // All modes supported #2
+ /* 2 */ 0x0f,  // All modes supported #3
+ /* 3 */ 0x00, 0x00, 0x00, 0x00,  // reserved
+ /* 7 */ 0x07,  // 200, 350, 400 scan lines
+ /* 8 */ 0x02,  // mamimum number of visible charsets in text mode
+ /* 9 */ 0x08,  // total number of charset blocks in text mode
+ /* a */ 0xe7,  // Change to add new functions
+ /* b */ 0x0c,  // Change to add new functions
+ /* c */ 0x00,  // reserved
+ /* d */ 0x00,  // reserved
+ /* e */ 0x00,  // Change to add new functions
+ /* f */ 0x00   // reserved
+};
+
 struct funcInfo {
-    u16 static_functionality_off;
-    u16 static_functionality_seg;
+    struct segoff_s static_functionality;
     u8 bda_0x49[30];
     u8 bda_0x84[3];
     u8 dcc_index;
@@ -1097,8 +1095,8 @@ handle_101b(struct bregs *regs)
     struct funcInfo *info = (void*)(regs->di+0);
     memset_far(seg, info, 0, sizeof(*info));
     // Address of static functionality table
-    SET_FARVAR(seg, info->static_functionality_off, (u32)static_functionality);
-    SET_FARVAR(seg, info->static_functionality_seg, get_global_seg());
+    SET_FARVAR(seg, info->static_functionality
+               , SEGOFF(get_global_seg(), (u32)static_functionality));
 
     // Hard coded copy from BIOS area. Should it be cleaner ?
     memcpy_far(seg, info->bda_0x49, SEG_BDA, (void*)0x49
@@ -1116,173 +1114,38 @@ handle_101b(struct bregs *regs)
 
 
 static void
-handle_101c00(struct bregs *regs)
-{
-    u16 flags = regs->cx;
-    u16 size = 0;
-    if (flags & 1)
-        size += sizeof(struct saveVideoHardware);
-    if (flags & 2)
-        size += sizeof(struct saveBDAstate);
-    if (flags & 4)
-        size += sizeof(struct saveDACcolors);
-    regs->bx = size;
-    regs->al = 0x1c;
-}
-
-static void
-handle_101c01(struct bregs *regs)
-{
-    u16 flags = regs->cx;
-    u16 seg = regs->es;
-    void *data = (void*)(regs->bx+0);
-    if (flags & 1) {
-        vgahw_save_state(seg, data);
-        data += sizeof(struct saveVideoHardware);
-    }
-    if (flags & 2) {
-        save_bda_state(seg, data);
-        data += sizeof(struct saveBDAstate);
-    }
-    if (flags & 4)
-        vgahw_save_dac_state(seg, data);
-    regs->al = 0x1c;
-}
-
-static void
-handle_101c02(struct bregs *regs)
-{
-    u16 flags = regs->cx;
-    u16 seg = regs->es;
-    void *data = (void*)(regs->bx+0);
-    if (flags & 1) {
-        vgahw_restore_state(seg, data);
-        data += sizeof(struct saveVideoHardware);
-    }
-    if (flags & 2) {
-        restore_bda_state(seg, data);
-        data += sizeof(struct saveBDAstate);
-    }
-    if (flags & 4)
-        vgahw_restore_dac_state(seg, data);
-    regs->al = 0x1c;
-}
-
-static void
-handle_101cXX(struct bregs *regs)
-{
-    debug_stub(regs);
-}
-
-static void
 handle_101c(struct bregs *regs)
 {
+    u16 seg = regs->es;
+    void *data = (void*)(regs->bx+0);
+    u16 states = regs->cx;
+    if (states & ~0x07)
+        goto fail;
+    int ret;
     switch (regs->al) {
-    case 0x00: handle_101c00(regs); break;
-    case 0x01: handle_101c01(regs); break;
-    case 0x02: handle_101c02(regs); break;
-    default:   handle_101cXX(regs); break;
+    case 0x00:
+        ret = vgahw_size_state(states);
+        if (ret < 0)
+            goto fail;
+        regs->bx = ret / 64;
+        break;
+    case 0x01:
+        ret = vgahw_save_state(seg, data, states);
+        if (ret)
+            goto fail;
+        break;
+    case 0x02:
+        ret = vgahw_restore_state(seg, data, states);
+        if (ret)
+            goto fail;
+        break;
+    default:
+        goto fail;
     }
+    regs->al = 0x1c;
+fail:
+    return;
 }
-
-
-static void
-handle_104f00(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_return_controller_information(&AX,ES,DI);
-    // XXX - OR cirrus_vesa_00h
-}
-
-static void
-handle_104f01(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_return_mode_information(&AX,CX,ES,DI);
-    // XXX - OR cirrus_vesa_01h
-}
-
-static void
-handle_104f02(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_set_mode(&AX,BX,ES,DI);
-    // XXX - OR cirrus_vesa_02h
-}
-
-static void
-handle_104f03(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_return_current_mode
-    // XXX - OR cirrus_vesa_03h
-}
-
-static void
-handle_104f04(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_save_restore_state(&AX, CX, DX, ES, &BX);
-}
-
-static void
-handle_104f05(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_display_window_control
-    // XXX - OR cirrus_vesa_05h
-}
-
-static void
-handle_104f06(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_set_get_logical_scan_line_length
-    // XXX - OR cirrus_vesa_06h
-}
-
-static void
-handle_104f07(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_set_get_display_start
-    // XXX - OR cirrus_vesa_07h
-}
-
-static void
-handle_104f08(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_set_get_dac_palette_format
-}
-
-static void
-handle_104f0a(struct bregs *regs)
-{
-    // XXX - vbe_biosfn_return_protected_mode_interface
-}
-
-static void
-handle_104fXX(struct bregs *regs)
-{
-    debug_stub(regs);
-    regs->ax = 0x0100;
-}
-
-static void
-handle_104f(struct bregs *regs)
-{
-    if (! CONFIG_VBE || !vbe_has_vbe_display()) {
-        handle_104fXX(regs);
-        return;
-    }
-
-    switch (regs->al) {
-    case 0x00: handle_104f00(regs); break;
-    case 0x01: handle_104f01(regs); break;
-    case 0x02: handle_104f02(regs); break;
-    case 0x03: handle_104f03(regs); break;
-    case 0x04: handle_104f04(regs); break;
-    case 0x05: handle_104f05(regs); break;
-    case 0x06: handle_104f06(regs); break;
-    case 0x07: handle_104f07(regs); break;
-    case 0x08: handle_104f08(regs); break;
-    case 0x0a: handle_104f0a(regs); break;
-    default:   handle_104fXX(regs); break;
-    }
-}
-
 
 static void
 handle_10XX(struct bregs *regs)
@@ -1355,33 +1218,49 @@ init_bios_area(void)
     SET_BDA(video_msr, 0x09);
 }
 
+int VgaBDF VAR16 = -1;
+int HaveRunInit VAR16;
+
 void VISIBLE16
 vga_post(struct bregs *regs)
 {
+    debug_serial_setup();
+    dprintf(1, "Start SeaVGABIOS (version %s)\n", VERSION);
     debug_enter(regs, DEBUG_VGA_POST);
 
-    vgahw_init();
+    if (CONFIG_VGA_PCI && !GET_GLOBAL(HaveRunInit)) {
+        u16 bdf = regs->ax;
+        if ((pci_config_readw(bdf, PCI_VENDOR_ID)
+             == GET_GLOBAL(rom_pci_data.vendor))
+            && (pci_config_readw(bdf, PCI_DEVICE_ID)
+                == GET_GLOBAL(rom_pci_data.device)))
+            SET_VGA(VgaBDF, bdf);
+    }
+
+    int ret = vgahw_init();
+    if (ret) {
+        dprintf(1, "Failed to initialize VGA hardware.  Exiting.\n");
+        return;
+    }
+
+    if (GET_GLOBAL(HaveRunInit))
+        return;
 
     init_bios_area();
 
-    if (CONFIG_VBE)
-        vbe_init();
+    SET_VGA(video_save_pointer_table.videoparam
+            , SEGOFF(get_global_seg(), (u32)video_param_table));
+    stdvga_build_video_param();
 
     extern void entry_10(void);
     SET_IVT(0x10, SEGOFF(get_global_seg(), (u32)entry_10));
 
-    if (CONFIG_CIRRUS)
-        cirrus_init();
-
-    // XXX - clear screen and display info
-
-    // XXX: fill it
-    SET_VGA(video_save_pointer_table[0], (u32)video_param_table);
-    SET_VGA(video_save_pointer_table[1], get_global_seg());
+    SET_VGA(HaveRunInit, 1);
 
     // Fixup checksum
     extern u8 _rom_header_size, _rom_header_checksum;
     SET_VGA(_rom_header_checksum, 0);
-    u8 sum = -checksum_far(get_global_seg(), 0, _rom_header_size * 512);
+    u8 sum = -checksum_far(get_global_seg(), 0,
+                           GET_GLOBAL(_rom_header_size) * 512);
     SET_VGA(_rom_header_checksum, sum);
 }

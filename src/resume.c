@@ -34,6 +34,7 @@ init_dma(void)
 void VISIBLE16
 handle_resume(void)
 {
+    ASSERT16();
     debug_serial_setup();
     int status = inb_cmos(CMOS_RESET_CODE);
     outb_cmos(0, CMOS_RESET_CODE);
@@ -107,6 +108,7 @@ s3_resume(void)
         return;
     }
 
+    pic_setup();
     smm_init();
 
     s3_resume_vga_init();

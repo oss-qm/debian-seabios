@@ -112,7 +112,8 @@ struct bios_data_area_s {
     struct segoff_s video_savetable;
     u8 other_ac[4];
     // 40:B0
-    u8 other_b0[10];
+    u8 other_b0[9];
+    u8 vbe_flag;
     u16 vbe_mode;
 } PACKED;
 
@@ -237,6 +238,10 @@ struct extended_bios_data_area_s {
     u8 cdrom_locks[CONFIG_MAX_EXTDRIVE];
 
     u16 boot_sequence;
+
+    /* TSC emulation timekeepers */
+    u64 tsc_8254;
+    int last_tsc_8254;
 
     // Stack space available for code that needs it.
     u8 extra_stack[512] __aligned(8);

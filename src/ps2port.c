@@ -132,6 +132,8 @@ i8042_aux_write(u8 c)
 void
 i8042_reboot(void)
 {
+    if (! CONFIG_PS2PORT)
+       return;
     int i;
     for (i=0; i<10; i++) {
         i8042_wait_write();
@@ -322,12 +324,17 @@ ps2_command(int aux, int command, u8 *param)
 int
 ps2_kbd_command(int command, u8 *param)
 {
+    if (! CONFIG_PS2PORT)
+        return -1;
     return ps2_command(0, command, param);
 }
 
 int
 ps2_mouse_command(int command, u8 *param)
 {
+    if (! CONFIG_PS2PORT)
+        return -1;
+
     // Update ps2ctr for mouse enable/disable.
     if (command == PSMOUSE_CMD_ENABLE || command == PSMOUSE_CMD_DISABLE) {
         u16 ebda_seg = get_ebda_seg();
@@ -396,6 +403,9 @@ handle_09(void)
         goto done;
 
     process_key(v);
+
+    // Some old programs expect ISR to turn keyboard back on.
+    i8042_command(I8042_CMD_KBD_ENABLE, NULL);
 
 done:
     eoi_pic1();

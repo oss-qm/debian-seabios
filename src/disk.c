@@ -76,7 +76,7 @@ fillLCHS(struct drive_s *drive_g, u16 *nlc, u16 *nlh, u16 *nlspt)
 }
 
 // Perform read/write/verify using old-style chs accesses
-static void
+static void noinline
 basic_access(struct bregs *regs, struct drive_s *drive_g, u16 command)
 {
     struct disk_op_s dop;
@@ -119,7 +119,7 @@ basic_access(struct bregs *regs, struct drive_s *drive_g, u16 command)
 }
 
 // Perform read/write/verify using new-style "int13ext" accesses.
-static void
+static void noinline
 extended_access(struct bregs *regs, struct drive_s *drive_g, u16 command)
 {
     struct disk_op_s dop;
@@ -135,6 +135,11 @@ extended_access(struct bregs *regs, struct drive_s *drive_g, u16 command)
 
     dop.buf_fl = SEGOFF_TO_FLATPTR(GET_INT13EXT(regs, data));
     dop.count = GET_INT13EXT(regs, count);
+    if (! dop.count) {
+        // Nothing to do.
+        disk_ret(regs, DISK_RET_SUCCESS);
+        return;
+    }
 
     int status = send_disk_op(&dop);
 
@@ -196,7 +201,7 @@ disk_1304(struct bregs *regs, struct drive_s *drive_g)
 }
 
 // format disk track
-static void
+static void noinline
 disk_1305(struct bregs *regs, struct drive_s *drive_g)
 {
     debug_stub(regs);
@@ -223,7 +228,7 @@ disk_1305(struct bregs *regs, struct drive_s *drive_g)
 }
 
 // read disk drive parameters
-static void
+static void noinline
 disk_1308(struct bregs *regs, struct drive_s *drive_g)
 {
     u16 ebda_seg = get_ebda_seg();
@@ -324,7 +329,7 @@ disk_1314(struct bregs *regs, struct drive_s *drive_g)
 }
 
 // read disk drive size
-static void
+static void noinline
 disk_1315(struct bregs *regs, struct drive_s *drive_g)
 {
     disk_ret(regs, DISK_RET_SUCCESS);
@@ -458,7 +463,7 @@ disk_1345(struct bregs *regs, struct drive_s *drive_g)
 }
 
 // IBM/MS eject media
-static void
+static void noinline
 disk_1346(struct bregs *regs, struct drive_s *drive_g)
 {
     if (regs->dl < EXTSTART_CD) {
@@ -546,7 +551,8 @@ disk_1348(struct bregs *regs, struct drive_s *drive_g)
     SET_INT13DPT(regs, blksize, blksize);
 
     if (size < 30 ||
-        (type != DTYPE_ATA && type != DTYPE_ATAPI && type != DTYPE_VIRTIO)) {
+        (type != DTYPE_ATA && type != DTYPE_ATAPI &&
+         type != DTYPE_VIRTIO_BLK && type != DTYPE_VIRTIO_SCSI)) {
         disk_ret(regs, DISK_RET_SUCCESS);
         return;
     }
@@ -651,7 +657,7 @@ disk_1348(struct bregs *regs, struct drive_s *drive_g)
         SET_INT13DPT(regs, iface_path, iobase1);
     }
 
-    if (type != DTYPE_VIRTIO) {
+    if (type != DTYPE_VIRTIO_BLK) {
         SET_INT13DPT(regs, iface_type[0], 'A');
         SET_INT13DPT(regs, iface_type[1], 'T');
         SET_INT13DPT(regs, iface_type[2], 'A');

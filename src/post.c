@@ -26,6 +26,7 @@
 #include "xen.h" // xen_probe_hvm_info
 #include "ps2port.h" // ps2port_setup
 #include "virtio-blk.h" // virtio_blk_setup
+#include "virtio-scsi.h" // virtio_scsi_setup
 
 
 /****************************************************************
@@ -103,7 +104,7 @@ ram_probe(void)
     if (CONFIG_COREBOOT) {
         coreboot_setup();
     } else if (usingXen()) {
-	xen_setup();
+        xen_setup();
     } else {
         // On emulators, get memory size from nvram.
         u32 rs = ((inb_cmos(CMOS_MEM_EXTMEM2_LOW) << 16)
@@ -150,8 +151,7 @@ ram_probe(void)
         add_e820(0xfffbc000, 4*4096, E820_RESERVED);
     }
 
-    dprintf(1, "Ram Size=0x%08x (0x%08x%08x high)\n"
-            , RamSize, (u32)(RamSizeOver4G >> 32), (u32)RamSizeOver4G);
+    dprintf(1, "Ram Size=0x%08x (0x%016llx high)\n", RamSize, RamSizeOver4G);
 }
 
 static void
@@ -162,8 +162,8 @@ init_bios_tables(void)
         return;
     }
     if (usingXen()) {
-	xen_copy_biostables();
-	return;
+        xen_copy_biostables();
+        return;
     }
 
     create_pirtable();
@@ -190,6 +190,7 @@ init_hw(void)
     cbfs_payload_setup();
     ramdisk_setup();
     virtio_blk_setup();
+    virtio_scsi_setup();
 }
 
 // Begin the boot process by invoking an int0x19 in 16bit mode.
