@@ -8,6 +8,10 @@ seabios (1.7.0-1) UNRELEASED; urgency=low
     change clean target accordingly
   * build and ship vgabios-{cirrus,stdvga,vmware,qxl,isavga}.bin
   * patches/fix-==-in-shell.patch -- fix build error with dash
+  * move all optionrom files taken from qemu into debian/optionrom,
+    instead of having them as patches in debian/patches.  While at
+    it, update optionroms from current qemu (1.1) and add
+    vapic.bin => kvmvapic.bin compatibility symlink.
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 17 Apr 2012 14:22:01 +0400
 
