@@ -12,6 +12,7 @@ seabios (1.7.0-1) UNRELEASED; urgency=low
     instead of having them as patches in debian/patches.  While at
     it, update optionroms from current qemu (1.1) and add
     vapic.bin => kvmvapic.bin compatibility symlink.
+  * add myself to uploaders
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 17 Apr 2012 14:22:01 +0400
 
