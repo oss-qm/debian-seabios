@@ -28,6 +28,7 @@ build-optionrom-stamp:
 	ln -s kvmvapic.bin debian/optionrom/vapic.bin
 	touch $@
 
+# Note: this does not support parallel make!
 define build-vgabios
 rm -rf out/
 rm -f .config
