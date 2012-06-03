@@ -28,25 +28,30 @@ build-optionrom-stamp:
 	ln -s kvmvapic.bin debian/optionrom/vapic.bin
 	touch $@
 
-# Note: this does not support parallel make!
 define build-vgabios
 rm -rf out/
 rm -f .config
 for x in BUILD_VGABIOS=y $1; do echo CONFIG_$$x; done > .config
-make oldnoconfig
-make out/vgabios.bin
+$(MAKE) oldnoconfig
+$(MAKE) out/vgabios.bin
 mv out/vgabios.bin $@
 endef
 
-vgabios-cirrus.bin: 
+# Since we use the same .config (and make oldconfig),
+# we can't make all vgabios-*.bin in parallel with each other.
+# Ensure they're made one after another by specifying
+# that next depends on previous, ie, making a dependency chain,
+# starting with main bios.bin
+
+vgabios-cirrus.bin: bios.bin
 	$(call build-vgabios,VGA_CIRRUS=y VGA_PCI=y)
-vgabios-stdvga.bin: 
+vgabios-stdvga.bin: vgabios-cirrus.bin
 	$(call build-vgabios,VGA_BOCHS=y VGA_PCI=y)
-vgabios-vmware.bin: 
+vgabios-vmware.bin: vgabios-stdvga.bin
 	$(call build-vgabios,VGA_BOCHS=y VGA_PCI=y OVERRIDE_PCI_ID=y VGA_VID=0x15ad VGA_DID=0x0405)
-vgabios-qxl.bin: 
+vgabios-qxl.bin: vgabios-vmware.bin
 	$(call build-vgabios,VGA_BOCHS=y VGA_PCI=y OVERRIDE_PCI_ID=y VGA_VID=0x1b36 VGA_DID=0x0100)
-vgabios-isavga.bin:
+vgabios-isavga.bin: vgabios-qxl.bin
 	$(call build-vgabios,VGA_BOCHS=y VGA_PCI=n)
 
 clean:
