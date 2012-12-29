@@ -18,7 +18,6 @@ build build-arch build-indep: $(BUILD_TARGETS)
 
 bios.bin:
 	dh_testdir
-	$(MAKE) src/acpi-dsdt.hex
 	$(MAKE) out/bios.bin
 	mv out/bios.bin bios.bin
 
@@ -59,8 +58,6 @@ clean:
 	rm -f $(BUILD_TARGETS)
 	rm -f .config .config.old
 	rm -rf out/
-	rm -f src/acpi-dsdt.aml
-	rm -f src/acpi-dsdt.hex
 	rm -f tools/*pyc
 	$(MAKE) -C debian/optionrom/ clean
 	dh_clean

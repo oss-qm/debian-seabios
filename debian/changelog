@@ -1,3 +1,16 @@
+seabios (1.7.1-1) UNRELEASED; urgency=low
+
+  * updated to new minor upstream release (1.7.1):
+   - native scsi boot support (Closes: #652530)
+   - usb-attached scsi boot support
+   - Xen support (Closes: #678042)
+   - better integration with qemu
+   - some bugfixes
+  * removed fix-==-in-shell.patch (not needed anymore)
+  * updated debian/rules (adapted for upstream changes a bit)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 29 Dec 2012 18:48:23 +0400
+
 seabios (1.7.0-1) unstable; urgency=low
 
   * new upstream release (1.7.0), featuring vgabios.
