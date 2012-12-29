@@ -1,7 +1,8 @@
 #ifndef __XEN_H
 #define __XEN_H
 
-#include "util.h"
+#include "config.h" // CONFIG_*
+#include "types.h" // u32
 
 extern u32 xen_cpuid_base;
 
@@ -16,7 +17,7 @@ static inline int usingXen(void) {
     return (xen_cpuid_base != 0);
 }
 
-unsigned long xen_hypercall_page;
+extern unsigned long xen_hypercall_page;
 
 #define _hypercall0(type, name)                                         \
 ({                                                                      \

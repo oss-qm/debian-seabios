@@ -7,7 +7,7 @@
 #include "types.h" // u8
 #include "ioport.h" // inb
 #include "util.h" // dprintf
-#include "biosvar.h" // GET_EBDA
+#include "biosvar.h" // GET_GLOBAL
 #include "pci.h" // foreachpci
 #include "pci_ids.h" // PCI_CLASS_STORAGE_OTHER
 #include "pci_regs.h" // PCI_INTERRUPT_LINE
@@ -29,7 +29,7 @@
 static void sata_prep_simple(struct sata_cmd_fis *fis, u8 command)
 {
     memset_fl(fis, 0, sizeof(*fis));
-    SET_FLATPTR(fis->command, command);
+    SET_LOWFLAT(fis->command, command);
 }
 
 static void sata_prep_readwrite(struct sata_cmd_fis *fis,
@@ -41,10 +41,10 @@ static void sata_prep_readwrite(struct sata_cmd_fis *fis,
     memset_fl(fis, 0, sizeof(*fis));
 
     if (op->count >= (1<<8) || lba + op->count >= (1<<28)) {
-        SET_FLATPTR(fis->sector_count2, op->count >> 8);
-        SET_FLATPTR(fis->lba_low2,      lba >> 24);
-        SET_FLATPTR(fis->lba_mid2,      lba >> 32);
-        SET_FLATPTR(fis->lba_high2,     lba >> 40);
+        SET_LOWFLAT(fis->sector_count2, op->count >> 8);
+        SET_LOWFLAT(fis->lba_low2,      lba >> 24);
+        SET_LOWFLAT(fis->lba_mid2,      lba >> 32);
+        SET_LOWFLAT(fis->lba_high2,     lba >> 40);
         lba &= 0xffffff;
         command = (iswrite ? ATA_CMD_WRITE_DMA_EXT
                    : ATA_CMD_READ_DMA_EXT);
@@ -52,22 +52,22 @@ static void sata_prep_readwrite(struct sata_cmd_fis *fis,
         command = (iswrite ? ATA_CMD_WRITE_DMA
                    : ATA_CMD_READ_DMA);
     }
-    SET_FLATPTR(fis->feature,      1); /* dma */
-    SET_FLATPTR(fis->command,      command);
-    SET_FLATPTR(fis->sector_count, op->count);
-    SET_FLATPTR(fis->lba_low,      lba);
-    SET_FLATPTR(fis->lba_mid,      lba >> 8);
-    SET_FLATPTR(fis->lba_high,     lba >> 16);
-    SET_FLATPTR(fis->device,       ((lba >> 24) & 0xf) | ATA_CB_DH_LBA);
+    SET_LOWFLAT(fis->feature,      1); /* dma */
+    SET_LOWFLAT(fis->command,      command);
+    SET_LOWFLAT(fis->sector_count, op->count);
+    SET_LOWFLAT(fis->lba_low,      lba);
+    SET_LOWFLAT(fis->lba_mid,      lba >> 8);
+    SET_LOWFLAT(fis->lba_high,     lba >> 16);
+    SET_LOWFLAT(fis->device,       ((lba >> 24) & 0xf) | ATA_CB_DH_LBA);
 }
 
 static void sata_prep_atapi(struct sata_cmd_fis *fis, u16 blocksize)
 {
     memset_fl(fis, 0, sizeof(*fis));
-    SET_FLATPTR(fis->command,  ATA_CMD_PACKET);
-    SET_FLATPTR(fis->feature,  1); /* dma */
-    SET_FLATPTR(fis->lba_mid,  blocksize);
-    SET_FLATPTR(fis->lba_high, blocksize >> 8);
+    SET_LOWFLAT(fis->command,  ATA_CMD_PACKET);
+    SET_LOWFLAT(fis->feature,  1); /* dma */
+    SET_LOWFLAT(fis->lba_mid,  blocksize);
+    SET_LOWFLAT(fis->lba_high, blocksize >> 8);
 }
 
 // ahci register access helpers
@@ -115,20 +115,20 @@ static int ahci_command(struct ahci_port_s *port, int iswrite, int isatapi,
     u32 pnr                  = GET_GLOBAL(port->pnr);
     u64 end;
 
-    SET_FLATPTR(cmd->fis.reg,       0x27);
-    SET_FLATPTR(cmd->fis.pmp_type,  (1 << 7)); /* cmd fis */
-    SET_FLATPTR(cmd->prdt[0].base,  ((u32)buffer));
-    SET_FLATPTR(cmd->prdt[0].baseu, 0);
-    SET_FLATPTR(cmd->prdt[0].flags, bsize-1);
+    SET_LOWFLAT(cmd->fis.reg,       0x27);
+    SET_LOWFLAT(cmd->fis.pmp_type,  (1 << 7)); /* cmd fis */
+    SET_LOWFLAT(cmd->prdt[0].base,  ((u32)buffer));
+    SET_LOWFLAT(cmd->prdt[0].baseu, 0);
+    SET_LOWFLAT(cmd->prdt[0].flags, bsize-1);
 
     flags = ((1 << 16) | /* one prd entry */
              (iswrite ? (1 << 6) : 0) |
              (isatapi ? (1 << 5) : 0) |
              (5 << 0)); /* fis length (dwords) */
-    SET_FLATPTR(list[0].flags,  flags);
-    SET_FLATPTR(list[0].bytes,  0);
-    SET_FLATPTR(list[0].base,   ((u32)(cmd)));
-    SET_FLATPTR(list[0].baseu,  0);
+    SET_LOWFLAT(list[0].flags,  flags);
+    SET_LOWFLAT(list[0].bytes,  0);
+    SET_LOWFLAT(list[0].base,   ((u32)(cmd)));
+    SET_LOWFLAT(list[0].baseu,  0);
 
     dprintf(8, "AHCI/%d: send cmd ...\n", pnr);
     intbits = ahci_port_readl(ctrl, pnr, PORT_IRQ_STAT);
@@ -144,13 +144,13 @@ static int ahci_command(struct ahci_port_s *port, int iswrite, int isatapi,
             if (intbits) {
                 ahci_port_writel(ctrl, pnr, PORT_IRQ_STAT, intbits);
                 if (intbits & 0x02) {
-                    status = GET_FLATPTR(fis->psfis[2]);
-                    error  = GET_FLATPTR(fis->psfis[3]);
+                    status = GET_LOWFLAT(fis->psfis[2]);
+                    error  = GET_LOWFLAT(fis->psfis[3]);
                     break;
                 }
                 if (intbits & 0x01) {
-                    status = GET_FLATPTR(fis->rfis[2]);
-                    error  = GET_FLATPTR(fis->rfis[3]);
+                    status = GET_LOWFLAT(fis->rfis[2]);
+                    error  = GET_LOWFLAT(fis->rfis[3]);
                     break;
                 }
             }
@@ -229,7 +229,7 @@ int ahci_cmd_data(struct disk_op_s *op, void *cdbcmd, u16 blocksize)
 
     sata_prep_atapi(&cmd->fis, blocksize);
     for (i = 0; i < CDROM_CDB_SIZE; i++) {
-        SET_FLATPTR(cmd->atapi[i], atapi[i]);
+        SET_LOWFLAT(cmd->atapi[i], atapi[i]);
     }
     rc = ahci_command(port, 0, 1, op->buf_fl,
                       op->count * blocksize);
@@ -301,49 +301,23 @@ ahci_disk_readwrite(struct disk_op_s *op, int iswrite)
 // command demuxer
 int process_ahci_op(struct disk_op_s *op)
 {
-    struct ahci_port_s *port;
-    u32 atapi;
-
     if (!CONFIG_AHCI)
         return 0;
-
-    port = container_of(op->drive_g, struct ahci_port_s, drive);
-    atapi = GET_GLOBAL(port->atapi);
-
-    if (atapi) {
-        switch (op->command) {
-        case CMD_READ:
-            return cdb_read(op);
-        case CMD_WRITE:
-        case CMD_FORMAT:
-            return DISK_RET_EWRITEPROTECT;
-        case CMD_RESET:
-            /* FIXME: what should we do here? */
-        case CMD_VERIFY:
-        case CMD_SEEK:
-            return DISK_RET_SUCCESS;
-        default:
-            dprintf(1, "AHCI: unknown cdrom command %d\n", op->command);
-            op->count = 0;
-            return DISK_RET_EPARAM;
-        }
-    } else {
-        switch (op->command) {
-        case CMD_READ:
-            return ahci_disk_readwrite(op, 0);
-        case CMD_WRITE:
-            return ahci_disk_readwrite(op, 1);
-        case CMD_RESET:
-            /* FIXME: what should we do here? */
-        case CMD_FORMAT:
-        case CMD_VERIFY:
-        case CMD_SEEK:
-            return DISK_RET_SUCCESS;
-        default:
-            dprintf(1, "AHCI: unknown disk command %d\n", op->command);
-            op->count = 0;
-            return DISK_RET_EPARAM;
-        }
+    switch (op->command) {
+    case CMD_READ:
+        return ahci_disk_readwrite(op, 0);
+    case CMD_WRITE:
+        return ahci_disk_readwrite(op, 1);
+    case CMD_FORMAT:
+    case CMD_RESET:
+    case CMD_ISREADY:
+    case CMD_VERIFY:
+    case CMD_SEEK:
+        return DISK_RET_SUCCESS;
+    default:
+        dprintf(1, "AHCI: unknown disk command %d\n", op->command);
+        op->count = 0;
+        return DISK_RET_EPARAM;
     }
 }
 
@@ -516,12 +490,12 @@ static int ahci_port_init(struct ahci_port_s *port)
             return -1;
     }
 
-    port->drive.type = DTYPE_AHCI;
     port->drive.cntl_id = pnr;
     port->drive.removable = (buffer[0] & 0x80) ? 1 : 0;
 
     if (!port->atapi) {
         // found disk (ata)
+        port->drive.type = DTYPE_AHCI;
         port->drive.blksize = DISK_SECTOR_SIZE;
         port->drive.pchs.cylinders = buffer[1];
         port->drive.pchs.heads = buffer[3];
@@ -548,11 +522,12 @@ static int ahci_port_init(struct ahci_port_s *port)
         port->prio = bootprio_find_ata_device(ctrl->pci_tmp, pnr, 0);
     } else {
         // found cdrom (atapi)
+        port->drive.type = DTYPE_AHCI_ATAPI;
         port->drive.blksize = CDROM_SECTOR_SIZE;
         port->drive.sectors = (u64)-1;
         u8 iscd = ((buffer[0] >> 8) & 0x1f) == 0x05;
         if (!iscd) {
-            dprintf(1, "AHCI/%d: atapi device is'nt a cdrom\n", port->pnr);
+            dprintf(1, "AHCI/%d: atapi device isn't a cdrom\n", port->pnr);
             return -1;
         }
         port->desc = znprintf(MAXDESCSIZE

@@ -27,6 +27,8 @@
 #include "ps2port.h" // ps2port_setup
 #include "virtio-blk.h" // virtio_blk_setup
 #include "virtio-scsi.h" // virtio_scsi_setup
+#include "lsi-scsi.h" // lsi_scsi_setup
+#include "esp-scsi.h" // esp_scsi_setup
 
 
 /****************************************************************
@@ -93,8 +95,11 @@ init_bda(void)
     memset(ebda, 0, sizeof(*ebda));
     ebda->size = esize;
 
-    add_e820((u32)MAKE_FLATPTR(ebda_seg, 0), GET_EBDA2(ebda_seg, size) * 1024
+    add_e820((u32)MAKE_FLATPTR(ebda_seg, 0), GET_EBDA(ebda_seg, size) * 1024
              , E820_RESERVED);
+
+    // Init extra stack
+    StackPos = (void*)(&ExtraStack[BUILD_EXTRA_STACK_SIZE] - datalow_base);
 }
 
 static void
@@ -191,6 +196,8 @@ init_hw(void)
     ramdisk_setup();
     virtio_blk_setup();
     virtio_scsi_setup();
+    lsi_scsi_setup();
+    esp_scsi_setup();
 }
 
 // Begin the boot process by invoking an int0x19 in 16bit mode.
@@ -211,8 +218,9 @@ startBoot(void)
 static void
 maininit(void)
 {
-    // Running at new code address - do code relocation fixups
-    malloc_fixupreloc();
+    // Setup romfile items.
+    qemu_cfg_romfile_setup();
+    coreboot_cbfs_setup();
 
     // Setup ivt/bda/ebda
     init_ivt();
@@ -287,6 +295,21 @@ maininit(void)
  * POST entry and code relocation
  ****************************************************************/
 
+// Relocation fixup code that runs at new address after relocation complete.
+static void
+afterReloc(void)
+{
+    // Running at new code address - do code relocation fixups
+    malloc_fixupreloc();
+
+    // Move low-memory initial variable content to new location.
+    extern u8 datalow_start[], datalow_end[], final_datalow_start[];
+    memmove(final_datalow_start, datalow_start, datalow_end - datalow_start);
+
+    // Run main code
+    maininit();
+}
+
 // Update given relocs for the code at 'dest' with a given 'delta'
 static void
 updateRelocs(void *dest, u32 *rstart, u32 *rend, u32 delta)
@@ -306,30 +329,36 @@ reloc_init(void)
     }
     // Symbols populated by the build.
     extern u8 code32flat_start[];
-    extern u8 _reloc_min_align[];
+    extern u8 _reloc_min_align;
     extern u32 _reloc_abs_start[], _reloc_abs_end[];
     extern u32 _reloc_rel_start[], _reloc_rel_end[];
     extern u32 _reloc_init_start[], _reloc_init_end[];
     extern u8 code32init_start[], code32init_end[];
+    extern u32 _reloc_datalow_start[], _reloc_datalow_end[];
+    extern u8 datalow_start[], datalow_end[], final_datalow_start[];
 
     // Allocate space for init code.
     u32 initsize = code32init_end - code32init_start;
-    u32 align = (u32)&_reloc_min_align;
-    void *dest = memalign_tmp(align, initsize);
-    if (!dest)
+    u32 codealign = (u32)&_reloc_min_align;
+    void *codedest = memalign_tmp(codealign, initsize);
+    if (!codedest)
         panic("No space for init relocation.\n");
 
     // Copy code and update relocs (init absolute, init relative, and runtime)
+    dprintf(1, "Relocating low data from %p to %p (size %d)\n"
+            , datalow_start, final_datalow_start, datalow_end - datalow_start);
+    updateRelocs(code32flat_start, _reloc_datalow_start, _reloc_datalow_end
+                 , final_datalow_start - datalow_start);
     dprintf(1, "Relocating init from %p to %p (size %d)\n"
-            , code32init_start, dest, initsize);
-    s32 delta = dest - (void*)code32init_start;
-    memcpy(dest, code32init_start, initsize);
-    updateRelocs(dest, _reloc_abs_start, _reloc_abs_end, delta);
-    updateRelocs(dest, _reloc_rel_start, _reloc_rel_end, -delta);
+            , code32init_start, codedest, initsize);
+    s32 delta = codedest - (void*)code32init_start;
+    memcpy(codedest, code32init_start, initsize);
+    updateRelocs(codedest, _reloc_abs_start, _reloc_abs_end, delta);
+    updateRelocs(codedest, _reloc_rel_start, _reloc_rel_end, -delta);
     updateRelocs(code32flat_start, _reloc_init_start, _reloc_init_end, delta);
 
     // Call maininit() in relocated code.
-    void (*func)(void) = (void*)maininit + delta;
+    void (*func)(void) = (void*)afterReloc + delta;
     barrier();
     func();
 }

@@ -8,9 +8,9 @@
 #include "acpi.h" // struct rsdp_descriptor
 #include "util.h" // memcpy
 #include "pci.h" // pci_find_init_device
-#include "biosvar.h" // GET_EBDA
 #include "pci_ids.h" // PCI_VENDOR_ID_INTEL
 #include "pci_regs.h" // PCI_INTERRUPT_LINE
+#include "ioport.h" // inl
 #include "paravirt.h"
 
 /****************************************************/
@@ -294,8 +294,9 @@ build_fadt(struct pci_device *pci)
     fadt->plvl2_lat = cpu_to_le16(0xfff); // C2 state not supported
     fadt->plvl3_lat = cpu_to_le16(0xfff); // C3 state not supported
     pci_init_device(fadt_init_tbl, pci, fadt);
-    /* WBINVD + PROC_C1 + SLP_BUTTON + RTC_S4 */
-    fadt->flags = cpu_to_le32((1 << 0) | (1 << 2) | (1 << 5) | (1 << 7));
+    /* WBINVD + PROC_C1 + SLP_BUTTON + RTC_S4 + USE_PLATFORM_CLOCK */
+    fadt->flags = cpu_to_le32((1 << 0) | (1 << 2) | (1 << 5) | (1 << 7) |
+                              (1 << 15));
 
     build_header((void*)fadt, FACP_SIGNATURE, sizeof(*fadt), 1);
 
@@ -326,7 +327,7 @@ build_madt(void)
         apic->length = sizeof(*apic);
         apic->processor_id = i;
         apic->local_apic_id = i;
-        if (i < CountCPUs)
+        if (apic_id_is_present(apic->local_apic_id))
             apic->flags = cpu_to_le32(1);
         else
             apic->flags = cpu_to_le32(0);
@@ -335,7 +336,7 @@ build_madt(void)
     struct madt_io_apic *io_apic = (void*)apic;
     io_apic->type = APIC_IO;
     io_apic->length = sizeof(*io_apic);
-    io_apic->io_apic_id = CountCPUs;
+    io_apic->io_apic_id = BUILD_IOAPIC_ID;
     io_apic->address = cpu_to_le32(BUILD_IOAPIC_ADDR);
     io_apic->interrupt = cpu_to_le32(0);
 
@@ -415,7 +416,8 @@ build_ssdt(void)
     int length = ((1+3+4)
                   + (acpi_cpus * SD_SIZEOF)
                   + (1+2+5+(12*acpi_cpus))
-                  + (6+2+1+(1*acpi_cpus)));
+                  + (6+2+1+(1*acpi_cpus))
+                  + 17);
     u8 *ssdt = malloc_high(sizeof(struct acpi_table_header) + length);
     if (! ssdt) {
         warn_noalloc();
@@ -443,6 +445,7 @@ build_ssdt(void)
     }
 
     // build "Method(NTFY, 2) {If (LEqual(Arg0, 0x00)) {Notify(CP00, Arg1)} ...}"
+    // Arg0 = Processor ID = APIC ID
     *(ssdt_ptr++) = 0x14; // MethodOp
     ssdt_ptr = encodeLen(ssdt_ptr, 2+5+(12*acpi_cpus), 2);
     *(ssdt_ptr++) = 'N';
@@ -475,7 +478,32 @@ build_ssdt(void)
     ssdt_ptr = encodeLen(ssdt_ptr, 2+1+(1*acpi_cpus), 2);
     *(ssdt_ptr++) = acpi_cpus;
     for (i=0; i<acpi_cpus; i++)
-        *(ssdt_ptr++) = (i < CountCPUs) ? 0x01 : 0x00;
+        *(ssdt_ptr++) = (apic_id_is_present(i)) ? 0x01 : 0x00;
+
+    // store pci io windows: start, end, length
+    // this way we don't have to do the math in the dsdt
+    struct bfld *bfld = malloc_high(sizeof(struct bfld));
+    bfld->p0s = pcimem_start;
+    bfld->p0e = pcimem_end - 1;
+    bfld->p0l = pcimem_end - pcimem_start;
+    bfld->p1s = pcimem64_start;
+    bfld->p1e = pcimem64_end - 1;
+    bfld->p1l = pcimem64_end - pcimem64_start;
+
+    // build "OperationRegion(BDAT, SystemMemory, 0x12345678, 0x87654321)"
+    *(ssdt_ptr++) = 0x5B; // ExtOpPrefix
+    *(ssdt_ptr++) = 0x80; // OpRegionOp
+    *(ssdt_ptr++) = 'B';
+    *(ssdt_ptr++) = 'D';
+    *(ssdt_ptr++) = 'A';
+    *(ssdt_ptr++) = 'T';
+    *(ssdt_ptr++) = 0x00; // SystemMemory
+    *(ssdt_ptr++) = 0x0C; // DWordPrefix
+    *(u32*)ssdt_ptr = (u32)bfld;
+    ssdt_ptr += 4;
+    *(ssdt_ptr++) = 0x0C; // DWordPrefix
+    *(u32*)ssdt_ptr = sizeof(struct bfld);
+    ssdt_ptr += 4;
 
     build_header((void*)ssdt, SSDT_SIGNATURE, ssdt_ptr - ssdt, 1);
 
@@ -492,6 +520,8 @@ extern void link_time_assertion(void);
 
 static void* build_pcihp(void)
 {
+    char *sys_states;
+    int sys_state_size;
     u32 rmvc_pcrm;
     int i;
 
@@ -522,6 +552,19 @@ static void* build_pcihp(void)
             memcpy(ssdt + aml_ej0_name[i], "EJ0_", 4);
         }
     }
+
+    sys_states = romfile_loadfile("etc/system-states", &sys_state_size);
+    if (!sys_states || sys_state_size != 6)
+        sys_states = (char[]){128, 0, 0, 129, 128, 128};
+
+    if (!(sys_states[3] & 128))
+        ssdt[acpi_s3_name[0]] = 'X';
+    if (!(sys_states[4] & 128))
+        ssdt[acpi_s4_name[0]] = 'X';
+    else
+        ssdt[acpi_s4_pkg[0] + 1] = ssdt[acpi_s4_pkg[0] + 3] = sys_states[4] & 127;
+    ((struct acpi_table_header*)ssdt)->checksum = 0;
+    ((struct acpi_table_header*)ssdt)->checksum -= checksum(ssdt, sizeof(ssdp_pcihp_aml));
 
     return ssdt;
 }
@@ -614,10 +657,10 @@ build_srat(void)
         core->proximity_lo = curnode;
         memset(core->proximity_hi, 0, 3);
         core->local_sapic_eid = 0;
-        if (i < CountCPUs)
+        if (apic_id_is_present(i))
             core->flags = cpu_to_le32(1);
         else
-            core->flags = 0;
+            core->flags = cpu_to_le32(0);
         core++;
     }
 

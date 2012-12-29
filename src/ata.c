@@ -10,7 +10,7 @@
 #include "util.h" // dprintf
 #include "cmos.h" // inb_cmos
 #include "pic.h" // enable_hwirq
-#include "biosvar.h" // GET_EBDA
+#include "biosvar.h" // GET_GLOBAL
 #include "pci.h" // foreachpci
 #include "pci_ids.h" // PCI_CLASS_STORAGE_OTHER
 #include "pci_regs.h" // PCI_INTERRUPT_LINE
@@ -139,31 +139,6 @@ isready(struct atadrive_s *adrive_g)
     if ((status & (ATA_CB_STAT_BSY|ATA_CB_STAT_RDY)) == ATA_CB_STAT_RDY)
         return DISK_RET_SUCCESS;
     return DISK_RET_ENOTREADY;
-}
-
-// Default 16bit command demuxer for ATA and ATAPI devices.
-static int
-process_ata_misc_op(struct disk_op_s *op)
-{
-    if (!CONFIG_ATA)
-        return 0;
-
-    struct atadrive_s *adrive_g = container_of(
-        op->drive_g, struct atadrive_s, drive);
-    switch (op->command) {
-    case CMD_RESET:
-        ata_reset(adrive_g);
-        return DISK_RET_SUCCESS;
-    case CMD_ISREADY:
-        return isready(adrive_g);
-    case CMD_FORMAT:
-    case CMD_VERIFY:
-    case CMD_SEEK:
-        return DISK_RET_SUCCESS;
-    default:
-        op->count = 0;
-        return DISK_RET_EPARAM;
-    }
 }
 
 
@@ -379,6 +354,7 @@ struct sff_dma_prd {
 static int
 ata_try_dma(struct disk_op_s *op, int iswrite, int blocksize)
 {
+    ASSERT16();
     if (! CONFIG_ATA_DMA)
         return -1;
     u32 dest = (u32)op->buf_fl;
@@ -396,9 +372,7 @@ ata_try_dma(struct disk_op_s *op, int iswrite, int blocksize)
         return -1;
 
     // Build PRD dma structure.
-    struct sff_dma_prd *dma = MAKE_FLATPTR(
-        get_ebda_seg()
-        , (void*)offsetof(struct extended_bios_data_area_s, extra_stack));
+    struct sff_dma_prd *dma = MAKE_FLATPTR(SEG_LOW, ExtraStack);
     struct sff_dma_prd *origdma = dma;
     while (bytes) {
         if (dma >= &origdma[16])
@@ -409,14 +383,14 @@ ata_try_dma(struct disk_op_s *op, int iswrite, int blocksize)
         if (count > max)
             count = max;
 
-        SET_FLATPTR(dma->buf_fl, dest);
+        SET_LOWFLAT(dma->buf_fl, dest);
         bytes -= count;
         if (!bytes)
             // Last descriptor.
             count |= 1<<31;
         dprintf(16, "dma@%p: %08x %08x\n", dma, dest, count);
         dest += count;
-        SET_FLATPTR(dma->count, count);
+        SET_LOWFLAT(dma->count, count);
         dma++;
     }
 
@@ -581,13 +555,25 @@ process_ata_op(struct disk_op_s *op)
     if (!CONFIG_ATA)
         return 0;
 
+    struct atadrive_s *adrive_g = container_of(
+        op->drive_g, struct atadrive_s, drive);
     switch (op->command) {
     case CMD_READ:
         return ata_readwrite(op, 0);
     case CMD_WRITE:
         return ata_readwrite(op, 1);
+    case CMD_RESET:
+        ata_reset(adrive_g);
+        return DISK_RET_SUCCESS;
+    case CMD_ISREADY:
+        return isready(adrive_g);
+    case CMD_FORMAT:
+    case CMD_VERIFY:
+    case CMD_SEEK:
+        return DISK_RET_SUCCESS;
     default:
-        return process_ata_misc_op(op);
+        op->count = 0;
+        return DISK_RET_EPARAM;
     }
 }
 
@@ -661,23 +647,6 @@ fail:
     if (ret)
         return DISK_RET_EBADTRACK;
     return DISK_RET_SUCCESS;
-}
-
-// 16bit command demuxer for ATAPI cdroms.
-int
-process_atapi_op(struct disk_op_s *op)
-{
-    if (!CONFIG_ATA)
-        return 0;
-    switch (op->command) {
-    case CMD_READ:
-        return cdb_read(op);
-    case CMD_FORMAT:
-    case CMD_WRITE:
-        return DISK_RET_EWRITEPROTECT;
-    default:
-        return process_ata_misc_op(op);
-    }
 }
 
 
@@ -763,7 +732,7 @@ init_drive_atapi(struct atadrive_s *dummy, u16 *buffer)
     struct atadrive_s *adrive_g = init_atadrive(dummy, buffer);
     if (!adrive_g)
         return NULL;
-    adrive_g->drive.type = DTYPE_ATAPI;
+    adrive_g->drive.type = DTYPE_ATA_ATAPI;
     adrive_g->drive.blksize = CDROM_SECTOR_SIZE;
     adrive_g->drive.sectors = (u64)-1;
     u8 iscd = ((buffer[0] >> 8) & 0x1f) == 0x05;

@@ -18,6 +18,7 @@ u8 FloppyCount VAR16VISIBLE;
 u8 CDCount;
 struct drive_s *IDMap[3][CONFIG_MAX_EXTDRIVE] VAR16VISIBLE;
 u8 *bounce_buf_fl VAR16VISIBLE;
+struct dpte_s DefaultDPTE VARLOW;
 
 struct drive_s *
 getDrive(u8 exttype, u8 extdriveoffset)
@@ -262,11 +263,11 @@ map_floppy_drive(struct drive_s *drive_g)
     // Update equipment word bits for floppy
     if (FloppyCount == 1) {
         // 1 drive, ready for boot
-        SETBITS_BDA(equipment_list_flags, 0x01);
+        set_equipment_flags(0x41, 0x01);
         SET_BDA(floppy_harddisk_info, 0x07);
     } else if (FloppyCount >= 2) {
         // 2 drives, ready for boot
-        SETBITS_BDA(equipment_list_flags, 0x41);
+        set_equipment_flags(0x41, 0x41);
         SET_BDA(floppy_harddisk_info, 0x77);
     }
 }
@@ -279,8 +280,6 @@ map_floppy_drive(struct drive_s *drive_g)
 static int
 process_scsi_op(struct disk_op_s *op)
 {
-    if (!CONFIG_VIRTIO_SCSI && !CONFIG_USB_MSC)
-        return 0;
     switch (op->command) {
     case CMD_READ:
         return cdb_read(op);
@@ -298,6 +297,18 @@ process_scsi_op(struct disk_op_s *op)
     }
 }
 
+static int
+process_atapi_op(struct disk_op_s *op)
+{
+    switch (op->command) {
+    case CMD_WRITE:
+    case CMD_FORMAT:
+        return DISK_RET_EWRITEPROTECT;
+    default:
+        return process_scsi_op(op);
+    }
+}
+
 // Execute a disk_op request.
 int
 process_op(struct disk_op_s *op)
@@ -309,8 +320,6 @@ process_op(struct disk_op_s *op)
         return process_floppy_op(op);
     case DTYPE_ATA:
         return process_ata_op(op);
-    case DTYPE_ATAPI:
-        return process_atapi_op(op);
     case DTYPE_RAMDISK:
         return process_ramdisk_op(op);
     case DTYPE_CDEMU:
@@ -319,8 +328,14 @@ process_op(struct disk_op_s *op)
         return process_virtio_blk_op(op);
     case DTYPE_AHCI:
         return process_ahci_op(op);
+    case DTYPE_ATA_ATAPI:
+    case DTYPE_AHCI_ATAPI:
+        return process_atapi_op(op);
     case DTYPE_USB:
+    case DTYPE_UAS:
     case DTYPE_VIRTIO_SCSI:
+    case DTYPE_LSI_SCSI:
+    case DTYPE_ESP_SCSI:
         return process_scsi_op(op);
     default:
         op->count = 0;
@@ -328,7 +343,7 @@ process_op(struct disk_op_s *op)
     }
 }
 
-// Execute a "disk_op_s" request - this runs on a stack in the ebda.
+// Execute a "disk_op_s" request - this runs on the extra stack.
 static int
 __send_disk_op(struct disk_op_s *op_far, u16 op_seg)
 {
@@ -349,7 +364,7 @@ __send_disk_op(struct disk_op_s *op_far, u16 op_seg)
     return status;
 }
 
-// Execute a "disk_op_s" request by jumping to a stack in the ebda.
+// Execute a "disk_op_s" request by jumping to the extra 16bit stack.
 int
 send_disk_op(struct disk_op_s *op)
 {

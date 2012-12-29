@@ -12,7 +12,7 @@
 #include "pci_ids.h" // PCI_CLASS_SERIAL_USB_UHCI
 #include "pci_regs.h" // PCI_BASE_ADDRESS_0
 #include "usb.h" // struct usb_s
-#include "farptr.h" // GET_FLATPTR
+#include "biosvar.h" // GET_LOWFLAT
 #include "usb-uhci.h" // init_uhci
 #include "usb-ohci.h" // init_ohci
 
@@ -82,7 +82,9 @@ ehci_hub_detect(struct usbhub_s *hub, u32 port)
         writel(portreg, portsc);
         msleep(EHCI_TIME_POSTPOWER);
     } else {
-        msleep(1); // XXX - time for connect to be detected.
+        // Port is already powered up, but we don't know how long it
+        // has been powered up, so wait the 20ms.
+        msleep(EHCI_TIME_POSTPOWER);
     }
     portsc = readl(portreg);
 
@@ -334,10 +336,6 @@ ehci_init(struct pci_device *pci, int busid, struct pci_device *comppci)
     u32 baseaddr = pci_config_readl(bdf, PCI_BASE_ADDRESS_0);
     struct ehci_caps *caps = (void*)(baseaddr & PCI_BASE_ADDRESS_MEM_MASK);
     u32 hcc_params = readl(&caps->hccparams);
-    if (hcc_params & HCC_64BIT_ADDR) {
-        dprintf(1, "No support for 64bit EHCI\n");
-        return -1;
-    }
 
     struct usb_ehci_s *cntl = malloc_tmphigh(sizeof(*cntl));
     if (!cntl) {
@@ -349,6 +347,8 @@ ehci_init(struct pci_device *pci, int busid, struct pci_device *comppci)
     cntl->usb.pci = pci;
     cntl->usb.type = USB_TYPE_EHCI;
     cntl->caps = caps;
+    if (hcc_params & HCC_64BIT_ADDR)
+        cntl->regs->ctrldssegment = 0;
     cntl->regs = (void*)caps + readb(&caps->caplength);
 
     dprintf(1, "EHCI init on dev %02x:%02x.%x (regs=%p)\n"
@@ -520,10 +520,10 @@ ehci_alloc_pipe(struct usbdevice_s *usbdev
 static void
 ehci_reset_pipe(struct ehci_pipe *pipe)
 {
-    SET_FLATPTR(pipe->qh.qtd_next, EHCI_PTR_TERM);
-    SET_FLATPTR(pipe->qh.alt_next, EHCI_PTR_TERM);
+    SET_LOWFLAT(pipe->qh.qtd_next, EHCI_PTR_TERM);
+    SET_LOWFLAT(pipe->qh.alt_next, EHCI_PTR_TERM);
     barrier();
-    SET_FLATPTR(pipe->qh.token, GET_FLATPTR(pipe->qh.token) & QTD_TOGGLE);
+    SET_LOWFLAT(pipe->qh.token, GET_LOWFLAT(pipe->qh.token) & QTD_TOGGLE);
 }
 
 static int
@@ -536,15 +536,15 @@ ehci_wait_td(struct ehci_pipe *pipe, struct ehci_qtd *td, int timeout)
         if (!(status & QTD_STS_ACTIVE))
             break;
         if (check_tsc(end)) {
-            u32 cur = GET_FLATPTR(pipe->qh.current);
-            u32 tok = GET_FLATPTR(pipe->qh.token);
-            u32 next = GET_FLATPTR(pipe->qh.qtd_next);
+            u32 cur = GET_LOWFLAT(pipe->qh.current);
+            u32 tok = GET_LOWFLAT(pipe->qh.token);
+            u32 next = GET_LOWFLAT(pipe->qh.qtd_next);
             warn_timeout();
             dprintf(1, "ehci pipe=%p cur=%08x tok=%08x next=%x td=%p status=%x\n"
                     , pipe, cur, tok, next, td, status);
             ehci_reset_pipe(pipe);
             struct usb_ehci_s *cntl = container_of(
-                GET_FLATPTR(pipe->pipe.cntl), struct usb_ehci_s, usb);
+                GET_LOWFLAT(pipe->pipe.cntl), struct usb_ehci_s, usb);
             ehci_waittick(cntl);
             return -1;
         }
@@ -657,9 +657,9 @@ ehci_send_bulk(struct usb_pipe *p, int dir, void *data, int datasize)
     struct ehci_qtd *tds = (void*)ALIGN((u32)tdsbuf, EHCI_QTD_ALIGN);
     memset(tds, 0, sizeof(*tds) * STACKQTDS);
     barrier();
-    SET_FLATPTR(pipe->qh.qtd_next, (u32)MAKE_FLATPTR(GET_SEG(SS), tds));
+    SET_LOWFLAT(pipe->qh.qtd_next, (u32)MAKE_FLATPTR(GET_SEG(SS), tds));
 
-    u16 maxpacket = GET_FLATPTR(pipe->pipe.maxpacket);
+    u16 maxpacket = GET_LOWFLAT(pipe->pipe.maxpacket);
     int tdpos = 0;
     while (datasize) {
         struct ehci_qtd *td = &tds[tdpos++ % STACKQTDS];
@@ -698,27 +698,25 @@ ehci_poll_intr(struct usb_pipe *p, void *data)
     if (! CONFIG_USB_EHCI)
         return -1;
     struct ehci_pipe *pipe = container_of(p, struct ehci_pipe, pipe);
-    struct ehci_qtd *td = GET_FLATPTR(pipe->next_td);
-    u32 token = GET_FLATPTR(td->token);
+    struct ehci_qtd *td = GET_LOWFLAT(pipe->next_td);
+    u32 token = GET_LOWFLAT(td->token);
     if (token & QTD_STS_ACTIVE)
         // No intrs found.
         return -1;
     // XXX - check for errors.
 
     // Copy data.
-    int maxpacket = GET_FLATPTR(pipe->pipe.maxpacket);
-    int pos = td - GET_FLATPTR(pipe->tds);
-    void *tddata = GET_FLATPTR(pipe->data) + maxpacket * pos;
-    memcpy_far(GET_SEG(SS), data
-               , FLATPTR_TO_SEG(tddata), (void*)FLATPTR_TO_OFFSET(tddata)
-               , maxpacket);
+    int maxpacket = GET_LOWFLAT(pipe->pipe.maxpacket);
+    int pos = td - GET_LOWFLAT(pipe->tds);
+    void *tddata = GET_LOWFLAT(pipe->data) + maxpacket * pos;
+    memcpy_far(GET_SEG(SS), data, SEG_LOW, LOWFLAT2LOW(tddata), maxpacket);
 
     // Reenable this td.
-    struct ehci_qtd *next = (void*)(GET_FLATPTR(td->qtd_next) & ~EHCI_PTR_BITS);
-    SET_FLATPTR(pipe->next_td, next);
-    SET_FLATPTR(td->buf[0], (u32)tddata);
+    struct ehci_qtd *next = (void*)(GET_LOWFLAT(td->qtd_next) & ~EHCI_PTR_BITS);
+    SET_LOWFLAT(pipe->next_td, next);
+    SET_LOWFLAT(td->buf[0], (u32)tddata);
     barrier();
-    SET_FLATPTR(td->token, (ehci_explen(maxpacket) | QTD_STS_ACTIVE
+    SET_LOWFLAT(td->token, (ehci_explen(maxpacket) | QTD_STS_ACTIVE
                             | QTD_PID_IN | ehci_maxerr(3)));
 
     return 0;

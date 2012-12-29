@@ -15,6 +15,7 @@
 #include "usb-hid.h" // usb_keyboard_setup
 #include "usb-hub.h" // usb_hub_init
 #include "usb-msc.h" // usb_msc_init
+#include "usb-uas.h" // usb_uas_init
 #include "usb.h" // struct usb_s
 #include "biosvar.h" // GET_GLOBAL
 
@@ -59,7 +60,7 @@ send_control(struct usb_pipe *pipe, int dir, const void *cmd, int cmdsize
 int
 usb_send_bulk(struct usb_pipe *pipe_fl, int dir, void *data, int datasize)
 {
-    switch (GET_FLATPTR(pipe_fl->type)) {
+    switch (GET_LOWFLAT(pipe_fl->type)) {
     default:
     case USB_TYPE_UHCI:
         return uhci_send_bulk(pipe_fl, dir, data, datasize);
@@ -70,10 +71,10 @@ usb_send_bulk(struct usb_pipe *pipe_fl, int dir, void *data, int datasize)
     }
 }
 
-int noinline
+int
 usb_poll_intr(struct usb_pipe *pipe_fl, void *data)
 {
-    switch (GET_FLATPTR(pipe_fl->type)) {
+    switch (GET_LOWFLAT(pipe_fl->type)) {
     default:
     case USB_TYPE_UHCI:
         return uhci_poll_intr(pipe_fl, data);
@@ -323,9 +324,12 @@ configure_usb_device(struct usbdevice_s *usbdev)
     usbdev->imax = (void*)config + config->wTotalLength - (void*)iface;
     if (iface->bInterfaceClass == USB_CLASS_HUB)
         ret = usb_hub_init(usbdev);
-    else if (iface->bInterfaceClass == USB_CLASS_MASS_STORAGE)
-        ret = usb_msc_init(usbdev);
-    else
+    else if (iface->bInterfaceClass == USB_CLASS_MASS_STORAGE) {
+        if (iface->bInterfaceProtocol == US_PR_BULK)
+            ret = usb_msc_init(usbdev);
+        if (iface->bInterfaceProtocol == US_PR_UAS)
+            ret = usb_uas_init(usbdev);
+    } else
         ret = usb_hid_init(usbdev);
     if (ret)
         goto fail;

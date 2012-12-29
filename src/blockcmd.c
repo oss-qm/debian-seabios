@@ -12,7 +12,10 @@
 #include "ata.h" // atapi_cmd_data
 #include "ahci.h" // atapi_cmd_data
 #include "usb-msc.h" // usb_cmd_data
+#include "usb-uas.h" // usb_cmd_data
 #include "virtio-scsi.h" // virtio_scsi_cmd_data
+#include "lsi-scsi.h" // lsi_scsi_cmd_data
+#include "esp-scsi.h" // esp_scsi_cmd_data
 #include "boot.h" // boot_add_hd
 
 // Route command to low-level handler.
@@ -21,14 +24,20 @@ cdb_cmd_data(struct disk_op_s *op, void *cdbcmd, u16 blocksize)
 {
     u8 type = GET_GLOBAL(op->drive_g->type);
     switch (type) {
-    case DTYPE_ATAPI:
+    case DTYPE_ATA_ATAPI:
         return atapi_cmd_data(op, cdbcmd, blocksize);
     case DTYPE_USB:
         return usb_cmd_data(op, cdbcmd, blocksize);
-    case DTYPE_AHCI:
+    case DTYPE_UAS:
+        return uas_cmd_data(op, cdbcmd, blocksize);
+    case DTYPE_AHCI_ATAPI:
         return ahci_cmd_data(op, cdbcmd, blocksize);
     case DTYPE_VIRTIO_SCSI:
         return virtio_scsi_cmd_data(op, cdbcmd, blocksize);
+    case DTYPE_LSI_SCSI:
+        return lsi_scsi_cmd_data(op, cdbcmd, blocksize);
+    case DTYPE_ESP_SCSI:
+        return esp_scsi_cmd_data(op, cdbcmd, blocksize);
     default:
         op->count = 0;
         return DISK_RET_EPARAM;
@@ -90,9 +99,6 @@ scsi_is_ready(struct disk_op_s *op)
 int
 scsi_init_drive(struct drive_s *drive, const char *s, int prio)
 {
-    if (!CONFIG_USB_MSC && !CONFIG_VIRTIO_SCSI)
-        return 0;
-
     struct disk_op_s dop;
     memset(&dop, 0, sizeof(dop));
     dop.drive_g = drive;
@@ -155,7 +161,7 @@ scsi_init_drive(struct drive_s *drive, const char *s, int prio)
     // but some old USB keys only support a very small subset of SCSI which
     // does not even include the MODE SENSE command!
     //
-    if (! CONFIG_COREBOOT && memcmp(vendor, "QEMU    ", 8) == 0) {
+    if (! CONFIG_COREBOOT && memcmp(vendor, "QEMU", 5) == 0) {
         struct cdbres_mode_sense_geom geomdata;
         ret = cdb_mode_sense_geom(&dop, &geomdata);
         if (ret == 0) {
