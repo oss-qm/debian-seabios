@@ -1,4 +1,4 @@
-seabios (1.7.1-1) UNRELEASED; urgency=low
+seabios (1.7.1-1) unstable; urgency=low
 
   * updated to new minor upstream release (1.7.1):
    - native scsi boot support (Closes: #652530)
@@ -12,7 +12,7 @@ seabios (1.7.1-1) UNRELEASED; urgency=low
   * updated debian/control VCS links to canonical anonscm.debian.org ones
   * break old qemu-system, not conflict with it, and mention qemu-kvm too
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 29 Dec 2012 18:48:23 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 29 Dec 2012 19:48:28 +0400
 
 seabios (1.7.0-1) unstable; urgency=low
 
