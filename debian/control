@@ -13,7 +13,7 @@ Homepage: http://www.seabios.org
 Package: seabios
 Architecture: all
 Depends: ${misc:Depends}
-Conflicts: qemu-system (<< 0.14.0)
+Breaks: qemu-system (<< 0.14.0), qemu-kvm (<< 0.14.0)
 Description: Legacy BIOS implementation
  SeaBIOS is a legacy BIOS implementation, aimed at supporting not only
  emulated hosts such as QEMU, but also real hardware.
