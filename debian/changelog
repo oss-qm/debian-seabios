@@ -6,6 +6,7 @@ seabios (1.7.2-1) UNRELEASED; urgency=low
    - Support for using the ACPI PM timer on emulators
    - Improved Geode VGA BIOS support.
    - Several bug fixes
+  * build main bios after all vgabioses
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 13:57:10 +0400
 
