@@ -1,3 +1,9 @@
+seabios (1.7.2-2) UNRELEASED; urgency=low
+
+  * bump Standards-Version to 3.9.4 (no changes needed)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 17:29:12 +0400
+
 seabios (1.7.2-1) unstable; urgency=low
 
   * new upstream release:
