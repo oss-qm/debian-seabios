@@ -1,3 +1,14 @@
+seabios (1.7.2-1) UNRELEASED; urgency=low
+
+  * new upstream release:
+   - Support for ICH9 host chipset ("q35") on emulators
+   - Support for booting from LSI MegaRAID SAS controllers
+   - Support for using the ACPI PM timer on emulators
+   - Improved Geode VGA BIOS support.
+   - Several bug fixes
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 13:57:10 +0400
+
 seabios (1.7.1-1) unstable; urgency=low
 
   * updated to new minor upstream release (1.7.1):
