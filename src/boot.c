@@ -291,6 +291,7 @@ static struct bootentry_s *BootList;
 #define IPL_TYPE_CBFS        0x20
 #define IPL_TYPE_BEV         0x80
 #define IPL_TYPE_BCV         0x81
+#define IPL_TYPE_HALT        0xf0
 
 static void
 bootentry_add(int type, int prio, u32 data, const char *desc)
@@ -400,7 +401,7 @@ interactive_bootmenu(void)
     while (get_keystroke(0) >= 0)
         ;
 
-    printf("Press F12 for boot menu.\n\n");
+    printf("\nPress F12 for boot menu.\n\n");
 
     u32 menutime = romfile_loadint("etc/boot-menu-wait", DEFAULT_BOOTMENU_WAIT);
     enable_bootsplash();
@@ -487,6 +488,10 @@ boot_prep(void)
     // Allow user to modify BCV/IPL order.
     interactive_bootmenu();
     wait_threads();
+
+    int haltprio = find_prio("HALT");
+    if (haltprio >= 0)
+        bootentry_add(IPL_TYPE_HALT, haltprio, 0, "HALT");
 
     // Map drives and populate BEV list
     struct bootentry_s *pos = BootList;
@@ -671,6 +676,9 @@ do_boot(int seq_nr)
         break;
     case IPL_TYPE_BEV:
         boot_rom(ie->vector);
+        break;
+    case IPL_TYPE_HALT:
+        boot_fail();
         break;
     }
 

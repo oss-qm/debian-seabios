@@ -13,7 +13,7 @@ SRCBOTH=misc.c stacks.c pmm.c output.c util.c block.c floppy.c ata.c mouse.c \
     pnpbios.c pirtable.c vgahooks.c ramdisk.c pcibios.c blockcmd.c \
     usb.c usb-uhci.c usb-ohci.c usb-ehci.c usb-hid.c usb-msc.c \
     virtio-ring.c virtio-pci.c virtio-blk.c virtio-scsi.c apm.c ahci.c \
-    usb-uas.c lsi-scsi.c esp-scsi.c
+    usb-uas.c lsi-scsi.c esp-scsi.c megasas.c
 SRC16=$(SRCBOTH) system.c disk.c font.c
 SRC32FLAT=$(SRCBOTH) post.c shadow.c memmap.c coreboot.c boot.c \
     acpi.c smm.c mptable.c smbios.c pciinit.c optionroms.c mtrr.c \
@@ -25,7 +25,7 @@ SRC32SEG=util.c output.c pci.c pcibios.c apm.c stacks.c
 cc-option=$(shell if test -z "`$(1) $(2) -S -o /dev/null -xc /dev/null 2>&1`" \
     ; then echo "$(2)"; else echo "$(3)"; fi ;)
 
-COMMONCFLAGS = -I$(OUT) -Os -MD -g \
+COMMONCFLAGS := -I$(OUT) -Os -MD -g \
     -Wall -Wno-strict-aliasing -Wold-style-definition \
     $(call cc-option,$(CC),-Wtype-limits,) \
     -m32 -march=i386 -mregparm=3 -mpreferred-stack-boundary=2 \
@@ -36,14 +36,14 @@ COMMONCFLAGS += $(call cc-option,$(CC),-nopie,)
 COMMONCFLAGS += $(call cc-option,$(CC),-fno-stack-protector,)
 COMMONCFLAGS += $(call cc-option,$(CC),-fno-stack-protector-all,)
 
-CFLAGS32FLAT = $(COMMONCFLAGS) -DMODE16=0 -DMODESEGMENT=0 -fomit-frame-pointer
-CFLAGSSEG = $(COMMONCFLAGS) -DMODESEGMENT=1 -fno-defer-pop \
+CFLAGS32FLAT := $(COMMONCFLAGS) -DMODE16=0 -DMODESEGMENT=0 -fomit-frame-pointer
+CFLAGSSEG := $(COMMONCFLAGS) -DMODESEGMENT=1 -fno-defer-pop \
     $(call cc-option,$(CC),-fno-jump-tables,-DMANUAL_NO_JUMP_TABLE) \
     $(call cc-option,$(CC),-fno-tree-switch-conversion,)
-CFLAGS32SEG = $(CFLAGSSEG) -DMODE16=0 -fomit-frame-pointer
-CFLAGS16INC = $(CFLAGSSEG) -DMODE16=1 -Wa,src/code16gcc.s \
+CFLAGS32SEG := $(CFLAGSSEG) -DMODE16=0 -fomit-frame-pointer
+CFLAGS16INC := $(CFLAGSSEG) -DMODE16=1 -Wa,src/code16gcc.s \
     $(call cc-option,$(CC),--param large-stack-frame=4,-fno-inline)
-CFLAGS16 = $(CFLAGS16INC) -fomit-frame-pointer
+CFLAGS16 := $(CFLAGS16INC) -fomit-frame-pointer
 
 # Run with "make V=1" to see the actual compile commands
 ifdef V
@@ -75,6 +75,7 @@ all: $(target-y)
 
 # Make definitions
 .PHONY : all clean distclean FORCE
+.DELETE_ON_ERROR:
 
 vpath %.c src vgasrc
 vpath %.S src vgasrc
@@ -88,34 +89,17 @@ ifeq "$(TESTGCC)" "-1"
 $(error "Please upgrade the build environment")
 endif
 
-ifndef COMPSTRAT
-COMPSTRAT=$(TESTGCC)
+ifeq "$(TESTGCC)" "0"
+# Use -fwhole-program
+CFLAGSWHOLE=-fwhole-program -DWHOLE_PROGRAM
 endif
 
-# Do a whole file compile - three methods are supported.
-ifeq "$(COMPSTRAT)" "1"
-# First method - use -fwhole-program without -combine.
+# Do a whole file compile by textually including all C code.
 define whole-compile
 @echo "  Compiling whole program $3"
 $(Q)printf '$(foreach i,$2,#include "../$i"\n)' > $3.tmp.c
-$(Q)$(CC) $1 -fwhole-program -DWHOLE_PROGRAM -c $3.tmp.c -o $3
+$(Q)$(CC) $1 $(CFLAGSWHOLE) -c $3.tmp.c -o $3
 endef
-else
-ifeq "$(COMPSTRAT)" "2"
-# Second menthod - don't use -fwhole-program at all.
-define whole-compile
-@echo "  Compiling whole program $3"
-$(Q)printf '$(foreach i,$2,#include "../$i"\n)' > $3.tmp.c
-$(Q)$(CC) $1 -c $3.tmp.c -o $3
-endef
-else
-# Third (and preferred) method - use -fwhole-program with -combine
-define whole-compile
-@echo "  Compiling whole program $3"
-$(Q)$(CC) $1 -fwhole-program -DWHOLE_PROGRAM -combine -c $2 -o $3
-endef
-endif
-endif
 
 %.strip.o: %.o
 	@echo "  Stripping $@"
@@ -124,6 +108,10 @@ endif
 $(OUT)%.s: %.c
 	@echo "  Compiling to assembler $@"
 	$(Q)$(CC) $(CFLAGS16) -S -c $< -o $@
+
+$(OUT)%.o: %.c $(OUT)autoconf.h
+	@echo "  Compile checking $@"
+	$(Q)$(CC) $(CFLAGS32FLAT) -c $< -o $@
 
 $(OUT)%.lds: %.lds.S
 	@echo "  Precompiling $@"
@@ -138,11 +126,11 @@ $(OUT)asm-offsets.h: $(OUT)asm-offsets.s
 	@echo "  Generating offset file $@"
 	$(Q)./tools/gen-offsets.sh $< $@
 
-$(OUT)ccode16.o: $(OUT)autoconf.h ; $(call whole-compile, $(CFLAGS16), $(addprefix src/, $(SRC16)),$@)
+$(OUT)ccode16.o: $(OUT)autoconf.h $(patsubst %.c, out/%.o,$(SRC16)) ; $(call whole-compile, $(CFLAGS16), $(addprefix src/, $(SRC16)),$@)
 
-$(OUT)code32seg.o: $(OUT)autoconf.h ; $(call whole-compile, $(CFLAGS32SEG), $(addprefix src/, $(SRC32SEG)),$@)
+$(OUT)code32seg.o: $(OUT)autoconf.h $(patsubst %.c, out/%.o,$(SRC32SEG)) ; $(call whole-compile, $(CFLAGS32SEG), $(addprefix src/, $(SRC32SEG)),$@)
 
-$(OUT)ccode32flat.o: $(OUT)autoconf.h ; $(call whole-compile, $(CFLAGS32FLAT), $(addprefix src/, $(SRC32FLAT)),$@)
+$(OUT)ccode32flat.o: $(OUT)autoconf.h $(patsubst %.c, out/%.o,$(SRC32FLAT)) ; $(call whole-compile, $(CFLAGS32FLAT), $(addprefix src/, $(SRC32FLAT)),$@)
 
 $(OUT)romlayout.o: romlayout.S $(OUT)asm-offsets.h
 	@echo "  Compiling (16bit) $@"
@@ -232,7 +220,7 @@ $(OUT)%.hex: src/%.dsl ./tools/acpi_extract_preprocess.py ./tools/acpi_extract.p
 	$(Q)$(PYTHON) ./tools/acpi_extract.py $(OUT)$*.lst > $(OUT)$*.off
 	$(Q)cat $(OUT)$*.off > $@
 
-$(OUT)ccode32flat.o: $(OUT)acpi-dsdt.hex $(OUT)ssdt-proc.hex $(OUT)ssdt-pcihp.hex
+$(OUT)acpi.o: $(OUT)acpi-dsdt.hex $(OUT)ssdt-proc.hex $(OUT)ssdt-pcihp.hex $(OUT)ssdt-susp.hex $(OUT)q35-acpi-dsdt.hex
 
 ################ Kconfig rules
 
