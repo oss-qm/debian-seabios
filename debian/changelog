@@ -7,6 +7,8 @@ seabios (1.7.2-1) UNRELEASED; urgency=low
    - Improved Geode VGA BIOS support.
    - Several bug fixes
   * build main bios after all vgabioses
+  * ship acpi-dsdt.aml and q35-acpi-dsdt.aml (*dsdt.aml) too
+    (needed by new qemu)
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 13:57:10 +0400
 
