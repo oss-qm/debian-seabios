@@ -1,4 +1,4 @@
-seabios (1.7.2-1) UNRELEASED; urgency=low
+seabios (1.7.2-1) unstable; urgency=low
 
   * new upstream release:
    - Support for ICH9 host chipset ("q35") on emulators
@@ -10,7 +10,7 @@ seabios (1.7.2-1) UNRELEASED; urgency=low
   * ship acpi-dsdt.aml and q35-acpi-dsdt.aml (*dsdt.aml) too
     (needed by new qemu)
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 13:57:10 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 14:48:28 +0400
 
 seabios (1.7.1-1) unstable; urgency=low
 
