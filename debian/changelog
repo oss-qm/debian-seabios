@@ -1,11 +1,11 @@
-seabios (1.7.2-2) UNRELEASED; urgency=low
+seabios (1.7.2-2) unstable; urgency=low
 
   * bump Standards-Version to 3.9.4 (no changes needed)
   * add a versioned dependency on iasl (<< 20130214), see #707454
   * add upstream 1.7.2.1 (as a patch since upstream didn't release source)
     (Closes: #707645)
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 19 Jan 2013 17:29:12 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 13 May 2013 19:45:38 +0400
 
 seabios (1.7.2-1) unstable; urgency=low
 
