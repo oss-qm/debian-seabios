@@ -48,6 +48,49 @@ index 0b112ed..2c9100d 100644
  
  menu "Debugging"
      config DEBUG_LEVEL
+diff --git a/src/boot.c b/src/boot.c
+index 56843e3..1a2218e 100644
+--- a/src/boot.c
++++ b/src/boot.c
+@@ -228,6 +228,7 @@ int bootprio_find_usb(struct usbdevice_s *usbdev, int lun)
+  * Boot setup
+  ****************************************************************/
+ 
++static int BootRetryTime;
+ static int CheckFloppySig = 1;
+ 
+ #define DEFAULT_PRIO           9999
+@@ -264,6 +265,8 @@ boot_setup(void)
+         }
+     }
+ 
++    BootRetryTime = romfile_loadint("etc/boot-fail-wait", 60*1000);
++
+     loadBootOrder();
+ }
+ 
+@@ -628,15 +631,15 @@ boot_rom(u32 vector)
+ static void
+ boot_fail(void)
+ {
+-    u32 retrytime = romfile_loadint("etc/boot-fail-wait", 60*1000);
+-    if (retrytime == (u32)-1)
++    if (BootRetryTime == (u32)-1)
+         printf("No bootable device.\n");
+     else
+-        printf("No bootable device.  Retrying in %d seconds.\n", retrytime/1000);
+-    // Wait for 'retrytime' milliseconds and then reboot.
+-    u32 end = calc_future_timer(retrytime);
++        printf("No bootable device.  Retrying in %d seconds.\n"
++               , BootRetryTime/1000);
++    // Wait for 'BootRetryTime' milliseconds and then reboot.
++    u32 end = calc_future_timer(BootRetryTime);
+     for (;;) {
+-        if (retrytime != (u32)-1 && check_timer(end))
++        if (BootRetryTime != (u32)-1 && check_timer(end))
+             break;
+         yield_toirq();
+     }
 diff --git a/src/pciinit.c b/src/pciinit.c
 index a406bbd..b3f359f 100644
 --- a/src/pciinit.c
@@ -151,6 +194,51 @@ index 2676615..8580f1d 100644
  
      dprintf(1, "EHCI init on dev %02x:%02x.%x (regs=%p)\n"
              , pci_bdf_to_bus(bdf), pci_bdf_to_dev(bdf)
+diff --git a/src/virtio-scsi.c b/src/virtio-scsi.c
+index ab74729..bf6c68b 100644
+--- a/src/virtio-scsi.c
++++ b/src/virtio-scsi.c
+@@ -147,6 +147,9 @@ init_virtio_scsi(struct pci_device *pci)
+         goto fail;
+     }
+ 
++    vp_set_status(ioaddr, VIRTIO_CONFIG_S_ACKNOWLEDGE |
++                  VIRTIO_CONFIG_S_DRIVER | VIRTIO_CONFIG_S_DRIVER_OK);
++
+     int i, tot;
+     for (tot = 0, i = 0; i < 256; i++)
+         tot += virtio_scsi_scan_target(pci, ioaddr, vq, i);
+@@ -154,8 +157,6 @@ init_virtio_scsi(struct pci_device *pci)
+     if (!tot)
+         goto fail;
+ 
+-    vp_set_status(ioaddr, VIRTIO_CONFIG_S_ACKNOWLEDGE |
+-                  VIRTIO_CONFIG_S_DRIVER | VIRTIO_CONFIG_S_DRIVER_OK);
+     return;
+ 
+ fail:
+diff --git a/src/virtio-scsi.h b/src/virtio-scsi.h
+index bbfbf30..96c3701 100644
+--- a/src/virtio-scsi.h
++++ b/src/virtio-scsi.h
+@@ -26,7 +26,7 @@ struct virtio_scsi_req_cmd {
+     u8 prio;
+     u8 crn;
+     char cdb[VIRTIO_SCSI_CDB_SIZE];
+-};
++} __attribute__((packed));
+ 
+ /* This is the first element of the "in" scatter-gather list. */
+ struct virtio_scsi_resp_cmd {
+@@ -36,7 +36,7 @@ struct virtio_scsi_resp_cmd {
+     u8 status;
+     u8 response;
+     u8 sense[VIRTIO_SCSI_SENSE_SIZE];
+-};
++} __attribute__((packed));
+ 
+ #define VIRTIO_SCSI_S_OK            0
+ 
 diff --git a/tools/acpi_extract.py b/tools/acpi_extract.py
 index 3295678..dd3ccfd 100755
 --- a/tools/acpi_extract.py
