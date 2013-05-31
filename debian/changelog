@@ -1,3 +1,9 @@
+seabios (1.7.2-3~bpo70+1) wheezy-backports; urgency=low
+
+  * Rebuild for wheezy-backports (no changes).
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 30 May 2013 15:26:35 +0400
+
 seabios (1.7.2-3) unstable; urgency=low
 
   * update to the next upstream pointpoint-release (1.7.2.2)
