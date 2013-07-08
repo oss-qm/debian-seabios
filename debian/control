@@ -12,6 +12,7 @@ Homepage: http://www.seabios.org
 
 Package: seabios
 Architecture: all
+Multi-Arch: allowed
 Depends: ${misc:Depends}
 Breaks: qemu-system (<< 0.14.0), qemu-kvm (<< 0.14.0)
 Description: Legacy BIOS implementation
