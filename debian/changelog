@@ -1,8 +1,8 @@
-seabios (1.7.3-1) UNRELEASED; urgency=low
+seabios (1.7.3-1) unstable; urgency=low
 
   * Multi-Arch: allowed
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 08 Jul 2013 21:27:05 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 08 Jul 2013 21:34:44 +0400
 
 seabios (1.7.2-3) unstable; urgency=low
 
