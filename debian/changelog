@@ -1,3 +1,10 @@
+seabios (1.7.3-2) UNRELEASED; urgency=low
+
+  [ Michael Tokarev ]
+  * update to upstream 1.7.3.2 bugfix release
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 04 Oct 2013 00:39:10 +0400
+
 seabios (1.7.3-1) unstable; urgency=low
 
   * new upstream release (1.7.3)
