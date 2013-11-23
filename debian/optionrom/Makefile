@@ -1,11 +1,11 @@
-all: build-all
+LD = ld
+OBJCOPY = objcopy
+CC = cc
 
-CFLAGS := -Wall -Wstrict-prototypes -Werror -fomit-frame-pointer -fno-builtin -fno-stack-protector
-CFLAGS += -I$(SRC_PATH)
-LD=ld
-OBJCOPY=objcopy
+all: $(subst .S,.bin,$(wildcard *.S))
 
-build-all: $(subst .S,.bin,$(wildcard *.S))
+%.o: %.S
+	$(CC) -c -o $@ $<
 
 %.img: %.o
 	$(LD) -Ttext 0 -e _start -s -o $@ $<
@@ -19,4 +19,4 @@ build-all: $(subst .S,.bin,$(wildcard *.S))
 clean:
 	rm -f *.o *.d *.raw *.img *.bin *~
 
-.PHONY : all clean build-all
+.PHONY: all clean

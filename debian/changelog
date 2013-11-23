@@ -5,6 +5,7 @@ seabios (1.7.3-2) UNRELEASED; urgency=low
   * Multi-Arch: foreign (vs allowed) (Closes: #728475)
   * move optionrom/*.bin to the main directory (with compat symlinks)
   * update optionrom files to ones from qemu-1.7
+  * simplify debian/optionrom/Makefile
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 04 Oct 2013 00:39:10 +0400
 
