@@ -1,4 +1,4 @@
-seabios (1.7.3-2) UNRELEASED; urgency=low
+seabios (1.7.3-2) unstable; urgency=low
 
   [ Michael Tokarev ]
   * update to upstream 1.7.3.2 bugfix release
@@ -7,7 +7,7 @@ seabios (1.7.3-2) UNRELEASED; urgency=low
   * update optionrom files to ones from qemu-1.7
   * simplify debian/optionrom/Makefile
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 04 Oct 2013 00:39:10 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sun, 24 Nov 2013 00:40:53 +0400
 
 seabios (1.7.3-1) unstable; urgency=low
 
