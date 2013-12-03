@@ -1,3 +1,9 @@
+seabios (1.7.3-3) UNRELEASED; urgency=low
+
+  * applied HDTV video modes patch from upstream
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 03 Dec 2013 17:05:57 +0400
+
 seabios (1.7.3-2) unstable; urgency=low
 
   [ Michael Tokarev ]
