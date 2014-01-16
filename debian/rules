@@ -59,7 +59,7 @@ clean:
 	rm -f $(BUILD_TARGETS)
 	rm -f .config .config.old
 	rm -rf out/
-	rm -f tools/*pyc
+	rm -f scripts/*pyc
 	$(MAKE) -C debian/optionrom/ clean
 	dh_clean
 

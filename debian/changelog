@@ -1,3 +1,11 @@
+seabios (1.7.4-1) unstable; urgency=low
+
+  * new upstream release (1.7.4)
+  * remove all patches (upstreamed)
+  * acpi tables are now in $out/src/fw/ not in $out/
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 16 Jan 2014 15:50:54 +0400
+
 seabios (1.7.3-3) unstable; urgency=low
 
   * applied HDTV video modes patch from upstream
