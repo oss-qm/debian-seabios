@@ -5,16 +5,16 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "config.h" // CONFIG_*
-#include "ioport.h" // PORT_A20
-#include "bregs.h" // CR0_*
-#include "cmos.h" // CMOS_RESET_CODE
 #include "asm-offsets.h" // BREGS_*
+#include "config.h" // CONFIG_*
 #include "entryfuncs.S" // ENTRY_*
+#include "hw/ps2port.h" // PORT_A20
+#include "hw/rtc.h" // CMOS_RESET_CODE
+#include "x86.h" // CR0_*
 
 
 /****************************************************************
- * Call trampolines
+ * 16bit / 32bit call trampolines
  ****************************************************************/
 
 // Place CPU into 32bit mode from 16bit mode.
@@ -127,32 +127,81 @@ transition16big:
         movl %ecx, %eax
         jmpl *%edx
 
+// Call a 16bit SeaBIOS function from SeaBIOS 32bit C code.
+// %ecx = calling function
+// Clobbers: %ecx, %edx, flags, segment registers, idt/gdt
+        DECLFUNC __call16
+        .global __call16big
+        .code32
+__call16:
+        pushl %edx
+        pushl %ecx
+        movl $1f, %edx
+        jmp transition16
+__call16big:
+        pushl %edx
+        pushl %ecx
+        movl $1f, %edx
+        jmp transition16big
+
+        // Make call.
+        .code16gcc
+1:      movl $_zonelow_seg, %edx        // Adjust %ds, %ss, and %esp
+        movl %edx, %ds
+        movzwl StackSeg, %edx
+        movl %edx, %ecx
+        shll $4, %ecx
+        movl %edx, %ss
+        subl %ecx, %esp
+        movl %edx, %ds
+
+        popl %ecx                       // Call function
+        popl %edx
+        calll *%ecx
+
+        movl %ss, %edx                  // Readjust %esp
+        shll $4, %edx
+        addl %edx, %esp
+
+        // Return via transition32
+        movl $(2f + BUILD_BIOS_ADDR), %edx
+        jmp transition32
+        .code32
+2:      retl
+
+
+/****************************************************************
+ * External calling trampolines
+ ****************************************************************/
+
 // Far call a 16bit function from 16bit mode with a specified cpu register state
-// %es:%eax = address of struct bregs
-// Clobbers: %e[bcd]x, %e[ds]i, flags
+// %eax = address of struct bregs, %edx = segment of struct bregs
+// Clobbers: %e[bc]x, %e[ds]i, flags
+        .code16gcc
         DECLFUNC __farcall16
 __farcall16:
-        // Save %eax, %ebp
+        // Save %edx/%eax, %ebp
         pushl %ebp
         pushl %eax
-        pushl %es
+        pushl %edx
 
         // Setup for iretw call
+        movl %edx, %ds
         pushw %cs
         pushw $1f                       // return point
-        pushw %es:BREGS_flags(%eax)     // flags
-        pushl %es:BREGS_code(%eax)      // CS:IP
+        pushw BREGS_flags(%eax)         // flags
+        pushl BREGS_code(%eax)          // CS:IP
 
         // Load calling registers.
-        movl %es:BREGS_edi(%eax), %edi
-        movl %es:BREGS_esi(%eax), %esi
-        movl %es:BREGS_ebp(%eax), %ebp
-        movl %es:BREGS_ebx(%eax), %ebx
-        movl %es:BREGS_edx(%eax), %edx
-        movl %es:BREGS_ecx(%eax), %ecx
-        movw %es:BREGS_ds(%eax), %ds
-        pushl %es:BREGS_eax(%eax)
-        movw %es:BREGS_es(%eax), %es
+        movl BREGS_edi(%eax), %edi
+        movl BREGS_esi(%eax), %esi
+        movl BREGS_ebp(%eax), %ebp
+        movl BREGS_ebx(%eax), %ebx
+        movl BREGS_edx(%eax), %edx
+        movl BREGS_ecx(%eax), %ecx
+        movw BREGS_es(%eax), %es
+        pushl BREGS_eax(%eax)
+        movw BREGS_ds(%eax), %ds
         popl %eax
 
         // Invoke call
@@ -162,55 +211,32 @@ __farcall16:
         pushfw
         cli
         cld
-        pushw %es
+        pushw %ds
         pushl %eax
-        movw 0x08(%esp), %es
+        movw 0x08(%esp), %ds
         movl 0x0c(%esp), %eax
-        popl %es:BREGS_eax(%eax)
-        popw %es:BREGS_es(%eax)
-        popw %es:BREGS_flags(%eax)
+        popl BREGS_eax(%eax)
+        popw BREGS_es(%eax)
+        popw BREGS_flags(%eax)
 
         // Store remaining registers
-        movl %edi, %es:BREGS_edi(%eax)
-        movl %esi, %es:BREGS_esi(%eax)
-        movl %ebp, %es:BREGS_ebp(%eax)
-        movl %ebx, %es:BREGS_ebx(%eax)
-        movl %edx, %es:BREGS_edx(%eax)
-        movl %ecx, %es:BREGS_ecx(%eax)
-        movw %ds, %es:BREGS_ds(%eax)
+        movl %edi, BREGS_edi(%eax)
+        movl %esi, BREGS_esi(%eax)
+        movl %ebp, BREGS_ebp(%eax)
+        movl %ebx, BREGS_ebx(%eax)
+        movl %edx, BREGS_edx(%eax)
+        movl %ecx, BREGS_ecx(%eax)
+        movw %es, BREGS_ds(%eax)
         movw %ss, %cx
         movw %cx, %ds                   // Restore %ds == %ss
 
-        // Remove %es/%eax, restore %ebp
-        popl %eax
+        // Remove %edx/%eax, restore %ebp
+        popl %edx
         popl %eax
         popl %ebp
 
         retl
 
-// Call a 16bit SeaBIOS function from SeaBIOS 32bit C code.
-// %ebx = calling function
-// Clobbers: %ecx, %edx, flags, segment registers, idt/gdt
-        DECLFUNC __call16
-        .global __call16big
-        .code32
-__call16:
-        movl $1f, %edx
-        jmp transition16
-__call16big:
-        movl $1f, %edx
-        jmp transition16big
-
-        // Make call.
-        .code16gcc
-1:      calll *%ebx
-        // Return via transition32
-        movl $(2f + BUILD_BIOS_ADDR), %edx
-        jmp transition32
-        .code32
-2:      retl
-
-        .code16gcc
 // IRQ trampolines
         .macro IRQ_TRAMPOLINE num
         DECLFUNC irq_trampoline_0x\num
@@ -460,7 +486,6 @@ irqentry_extrastack:
         popl %ecx
         movl %edx, 12(%eax)
         movl %esp, 16(%eax)
-        movzwl %sp, %esp
         movw %ss, 20(%eax)
 
         movw %ds, %dx           // Setup %ss/%esp and call function
@@ -502,12 +527,9 @@ irqentry_arg_extrastack:
         popl %ecx
         movw %es, BREGS_es(%eax)
         movl %esp, BREGS_size+0(%eax)
-        movzwl %sp, %esp
         movw %ss, BREGS_size+4(%eax)
-        movl (%esp), %edx
-        movl %edx, BREGS_code(%eax)
-        movw 4(%esp), %dx
-        movw %dx, BREGS_flags(%eax)
+        popl BREGS_code(%eax)
+        popw BREGS_flags(%eax)
 
         movw %ds, %dx           // Setup %ss/%esp and call function
         movw %dx, %ss

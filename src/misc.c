@@ -5,10 +5,14 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "bregs.h" // struct bregs
 #include "biosvar.h" // GET_BDA
-#include "util.h" // debug_enter
-#include "pic.h" // enable_hwirq
+#include "bregs.h" // struct bregs
+#include "hw/pic.h" // enable_hwirq
+#include "output.h" // debug_enter
+#include "stacks.h" // call16_int
+#include "string.h" // memset
+
+#define PORT_MATH_CLEAR        0x00f0
 
 
 /****************************************************************
@@ -71,7 +75,7 @@ handle_75(void)
     // clear irq13
     outb(0, PORT_MATH_CLEAR);
     // clear interrupt
-    eoi_pic2();
+    pic_eoi2();
     // legacy nmi call
     struct bregs br;
     memset(&br, 0, sizeof(br));

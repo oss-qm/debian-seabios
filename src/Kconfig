@@ -113,6 +113,26 @@ endchoice
             adversely impact any legacy operating systems that call
             the BIOS in 16bit protected mode.
 
+    config MALLOC_UPPERMEMORY
+        bool "Allocate memory that needs to be in first Meg above 0xc0000"
+        default y
+        help
+            Use the "Upper Memory Block" area (0xc0000-0xf0000) for
+            internal "low memory" allocations.  If this is not
+            selected, the memory is instead allocated from the
+            "9-segment" (0x90000-0xa0000).
+
+    config ROM_SIZE
+        int "ROM size (in KB)"
+        default 0
+        help
+            Set the ROM size.  Say '0' here to make seabios figure the
+            needed size automatically.
+
+            Currently SeaBIOS will easily fit into 256 KB. To make it fit
+            it into 128 KB (which was big enouth for a long time) you'll
+            probably have to disable some featues such as xhci support.
+
 endmenu
 
 menu "Hardware support"
@@ -152,6 +172,18 @@ menu "Hardware support"
         default y
         help
             Support boot from virtio-scsi storage.
+    config PVSCSI
+        depends on DRIVES && QEMU_HARDWARE
+        bool "PVSCSI controllers"
+        default y
+        help
+            Support boot from Paravirtualized SCSI storage. This kind of storage
+            is mainly supported by VMware ESX hypervisor. It is commonly used
+            to allow fast storage access by communicating directly with the
+            underlying hypervisor. Enabling this type of boot will allow
+            booting directly from images imported from an ESX platform,
+            without the need to use slower emulation of storage controllers
+            such as IDE.
     config ESP_SCSI
         depends on DRIVES && QEMU_HARDWARE
         bool "AMD PCscsi controllers"
@@ -207,6 +239,12 @@ menu "Hardware support"
         default y
         help
             Support USB EHCI controllers.
+    config USB_XHCI
+        depends on USB && QEMU_HARDWARE
+        bool "USB XHCI controllers"
+        default y
+        help
+            Support USB XHCI controllers.
     config USB_MSC
         depends on USB && DRIVES
         bool "USB drives"
@@ -362,6 +400,18 @@ menu "BIOS interfaces"
         default n
         help
             Disable A20 on 16bit boot.
+
+    config WRITABLE_UPPERMEMORY
+        depends on QEMU
+        bool "Make unused UMB memory read/writeable."
+        default n
+        help
+            When selected, the "Upper Memory Block" area
+            (0x90000-0xa0000) that is not used for option roms will be
+            made writable.  This allows the ram to be directly
+            modified by programs.  However, some old DOS high memory
+            managers may require the UMB region to be read-only.
+
 endmenu
 
 menu "BIOS Tables"
@@ -395,6 +445,17 @@ menu "BIOS Tables"
             Include default DSDT ACPI table in BIOS.
             Required for QEMU 1.3 and older.
             This option can be disabled for QEMU 1.4 and newer
+            to save some space in the ROM file.
+            If unsure, say Y.
+    config FW_ROMFILE_LOAD
+        bool "Load BIOS tables from ROM files"
+        depends on QEMU_HARDWARE
+        default y
+        help
+            Support loading BIOS firmware tables from ROM files.
+            At the moment, only ACPI tables can be loaded in this way.
+            Required for QEMU 1.7 and newer.
+            This option can be disabled for QEMU 1.6 and older
             to save some space in the ROM file.
             If unsure, say Y.
 endmenu
@@ -432,5 +493,15 @@ menu "Debugging"
             Some emulators or hypervisors provide with a way to output debug
             information by outputing strings in a special port present in the
             IO space.
+
+    config DEBUG_COREBOOT
+        depends on COREBOOT && DEBUG_LEVEL != 0
+        bool "coreboot cbmem debug logging"
+        default y
+        help
+            Send debugging information to the coreboot cbmem console buffer.
+            Needs CONFIG_CONSOLE_CBMEM in coreboot.  You can read the log
+            after boot using 'cbmem -c'.  Only 32bit code (basically every-
+            thing before booting the OS) writes to the log buffer.
 
 endmenu
