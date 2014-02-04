@@ -12,7 +12,8 @@ DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
 VGABIOSES = cirrus stdvga vmware qxl isavga
 VGABIOS_TARGETS = $(addprefix build/vgabios-, $(addsuffix .bin, $(VGABIOSES)))
-BUILD_TARGETS = build/bios.bin $(VGABIOS_TARGETS) build/optionrom-stamp
+BUILD_TARGETS = build/bios.bin build/bios-256k.bin \
+		$(VGABIOS_TARGETS) build/optionrom-stamp
 
 build build-arch build-indep: $(BUILD_TARGETS)
 
@@ -37,7 +38,13 @@ rm -f $@; ln $$d/$1.bin $@
 endef
 
 build/bios.bin:
-	$(call build-bios,bios,QEMU=y)
+# A (somewhat) stripped-down version of bios, to fit in 128Kb
+# Note: old qemu wont work with xen anymore with this bios, only
+# the new qemu which uses the 256k bios variant below.
+# (This is not an issue for jessie, since in wheezy it didn't work anyway)
+	$(call build-bios,bios,QEMU=y ROM_SIZE=128 XEN=n USB_XCHI=n)
+build/bios-256k.bin:
+	$(call build-bios,bios,QEMU=y ROM_SIZE=256)
 
 build/vgabios-cirrus.bin:
 	$(call build-bios,vgabios,BUILD_VGABIOS=y VGA_CIRRUS=y VGA_PCI=y)
