@@ -2,7 +2,9 @@ Source: seabios
 Section: misc
 Priority: extra
 Maintainer: Debian QEMU Team <pkg-qemu-devel@lists.alioth.debian.org>
-Uploaders: Aurelien Jarno <aurel32@debian.org>, Riku Voipio <riku.voipio@iki.fi>, Vagrant Cascadian <vagrant@debian.org>,
+Uploaders: Aurelien Jarno <aurel32@debian.org>,
+	Riku Voipio <riku.voipio@iki.fi>,
+	Vagrant Cascadian <vagrant@debian.org>,
 	Michael Tokarev <mjt@tls.msk.ru>
 Build-Depends: debhelper (>= 7), python, acpica-tools | iasl
 Standards-Version: 3.9.5
