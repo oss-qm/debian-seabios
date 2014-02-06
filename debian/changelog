@@ -5,6 +5,8 @@ seabios (1.7.4-2) UNRELEASED; urgency=low
   * build all variants in build/*, refresh debian/rules
   * added bios-256k.bin variant for qemu > 1.7, and reduce regular
     ("small) bios (for qemu <= 1.7) to be 128Kb in size again
+  * vgabios-Make-sure-exported-structs-use-PACKED.diff: patch from
+    upstream to fix interface between vgabios and real world
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 04 Feb 2014 15:05:21 +0400
 

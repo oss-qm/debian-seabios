@@ -1,0 +1,66 @@
+Date: Wed, 5 Feb 2014 18:59:20 -0500
+From: Kevin O'Connor <kevin@koconnor.net>
+To: seabios@seabios.org
+Message-ID: <0e216572159ad2649be6d3d68352c4524ec70c6c.1391644710.git.kevin@koconnor.net>
+Subject: [SeaBIOS] [PATCH] vgabios: Make sure exported structs use PACKED.
+
+Commit ca668640 introduced structs for data returned from the
+handle_101b and handle_101c calls.  However, the structs were not
+declared as packed and that caused incorrect behavior for
+handle_101b.  This was seen to break some old DOS programs (Win3 setup
+and DISPLAY.SYS).  This patch adds in the necessary PACKED declaration
+to the structs.
+
+The 'struct saveBDAstate' remains un-packed, as it does not appear
+that its contents are documented.  (And, its format already differs
+from what was in the previous "lgpl vgabios".)
+
+Signed-off-by: Kevin O'Connor <kevin@koconnor.net>
+---
+ vgasrc/stdvga.c  | 4 ++--
+ vgasrc/vgabios.c | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/vgasrc/stdvga.c b/vgasrc/stdvga.c
+index e0661f1..c94ec06 100644
+--- a/vgasrc/stdvga.c
++++ b/vgasrc/stdvga.c
+@@ -338,7 +338,7 @@ struct saveVideoHardware {
+     u8 grdc_regs[9];
+     u16 crtc_addr;
+     u8 plane_latch[4];
+-};
++} PACKED;
+ 
+ static void
+ stdvga_save_hw_state(u16 seg, struct saveVideoHardware *info)
+@@ -412,7 +412,7 @@ struct saveDACcolors {
+     u8 pelmask;
+     u8 dac[768];
+     u8 color_select;
+-};
++} PACKED;
+ 
+ static void
+ stdvga_save_dac_state(u16 seg, struct saveDACcolors *info)
+diff --git a/vgasrc/vgabios.c b/vgasrc/vgabios.c
+index 57f1c1f..f70b2b6 100644
+--- a/vgasrc/vgabios.c
++++ b/vgasrc/vgabios.c
+@@ -1114,7 +1114,7 @@ struct funcInfo {
+     u8 save_flags;
+     u8 disp_info;
+     u8 reserved_34[12];
+-};
++} PACKED;
+ 
+ static void
+ handle_101b(struct bregs *regs)
+-- 
+1.8.5.3
+
+
+_______________________________________________
+SeaBIOS mailing list
+SeaBIOS@seabios.org
+http://www.seabios.org/mailman/listinfo/seabios
