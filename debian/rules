@@ -39,10 +39,16 @@ endef
 
 build/bios.bin:
 # A (somewhat) stripped-down version of bios, to fit in 128Kb
-# Note: old qemu wont work with xen anymore with this bios, only
-# the new qemu which uses the 256k bios variant below.
-# (This is not an issue for jessie, since in wheezy it didn't work anyway)
-	$(call build-bios,bios,QEMU=y ROM_SIZE=128 XEN=n USB_XCHI=n)
+# If the bios is larger, we have issues with guest migration, and older xen
+# (before 4.3.1) does not work as it only supports bios of size 128Kb.
+# Upstream qemu builds smaller bios without XCHI (usb3) and XEN,
+# but we need XEN support so we disable usb3 (implenented since 1.7.4)
+# and another recent but rather small feature, pvscsi.  We're very close
+# to the available size, and the size also depends on compiler and options.
+# Qemu past 1.7 version will load bios-256k.bin by default (for new machine
+# types), but the size is still a concern when specifying older machine
+# types (1.7 and before).
+	$(call build-bios,bios,QEMU=y ROM_SIZE=128 USB_XHCI=n PVSCSI=n)
 build/bios-256k.bin:
 	$(call build-bios,bios,QEMU=y ROM_SIZE=256)
 
