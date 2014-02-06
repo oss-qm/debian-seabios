@@ -1,4 +1,4 @@
-seabios (1.7.4-2) UNRELEASED; urgency=low
+seabios (1.7.4-2) unstable; urgency=low
 
   * actually update optionrom/multiboot.S from the commit indicated
     in optionrom/README file. (Closes: #736902)
@@ -8,7 +8,7 @@ seabios (1.7.4-2) UNRELEASED; urgency=low
   * vgabios-Make-sure-exported-structs-use-PACKED.diff: patch from
     upstream to fix interface between vgabios and real world
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 04 Feb 2014 15:05:21 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Thu, 06 Feb 2014 23:31:04 +0400
 
 seabios (1.7.4-1) unstable; urgency=low
 
