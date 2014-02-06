@@ -31,9 +31,9 @@ if [ ! -e $$d/.config.old ]; then \
    (*) echo CONFIG_$$x;; \
   esac; \
  done > $$d/.config; \
- $(MAKE) KCONFIG_CONFIG=$(PWD)/$$d/.config OUT=$$d/ oldnoconfig; \
+ $(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ oldnoconfig; \
 fi; \
-$(MAKE) KCONFIG_CONFIG=$(PWD)/$$d/.config OUT=$$d/ $$d/$1.bin; \
+$(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ $$d/$1.bin; \
 rm -f $@; ln $$d/$1.bin $@
 endef
 

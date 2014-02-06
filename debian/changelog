@@ -8,6 +8,7 @@ seabios (1.7.4-3) UNRELEASED; urgency=low
     only in next iasl release.  But no one actually noticed this.
     (Gladly Closes: #707454)
   * update standards-version to 3.9.5 (no changes needed)
+  * replace $(PWD) with $(CURDIR) in d/rules (fixes build failure)
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 07 Feb 2014 00:07:39 +0400
 
