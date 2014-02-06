@@ -1,3 +1,15 @@
+seabios (1.7.4-3) UNRELEASED; urgency=low
+
+  * allow seabios to be built using more recent iasl, finally,
+    and enable acpica-tools build-depend alternative.  This has
+    actually been fixed long ago (the patch is in 1.7.1), even
+    before the version against which #707454 has been reported,
+    but the fix required a new iasl option which were available
+    only in next iasl release.  But no one actually noticed this.
+    (Gladly Closes: #707454)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 07 Feb 2014 00:07:39 +0400
+
 seabios (1.7.4-2) unstable; urgency=low
 
   * actually update optionrom/multiboot.S from the commit indicated
