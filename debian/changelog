@@ -1,10 +1,10 @@
-seabios (1.7.4-4) UNRELEASED; urgency=low
+seabios (1.7.4-4) unstable; urgency=low
 
   * apply vgabios-attempt-to-detect-old-x86emu-and-force-a-fault.diff:
     a patch from upstream to work around apparently broken x86 emulation
     in some software.  (Closes: #737142)
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 17 Feb 2014 21:28:58 +0400
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 17 Feb 2014 21:35:59 +0400
 
 seabios (1.7.4-3) unstable; urgency=low
 
