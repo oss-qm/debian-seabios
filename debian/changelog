@@ -1,3 +1,9 @@
+seabios (1.7.4-5) UNRELEASED; urgency=low
+
+  * set upstream source URL (Closes: #740471) 
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 02 May 2014 13:13:25 +0400
+
 seabios (1.7.4-4) unstable; urgency=low
 
   * apply vgabios-attempt-to-detect-old-x86emu-and-force-a-fault.diff:
