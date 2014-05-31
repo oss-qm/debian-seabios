@@ -2,6 +2,7 @@ seabios (1.7.5-1) UNRELEASED; urgency=low
 
   * new upstream release
   * dropped all patches taken from upstream
+  * disabled more features (XEN & USB_UAS) from the 128k bios build to fit
   * set upstream source URL (Closes: #740471) 
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Fri, 02 May 2014 13:13:25 +0400
