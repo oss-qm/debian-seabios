@@ -1,2 +1,0 @@
-vgabios-Make-sure-exported-structs-use-PACKED.diff
-vgabios-attempt-to-detect-old-x86emu-and-force-a-fault.diff
