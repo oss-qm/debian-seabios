@@ -1,11 +1,11 @@
-seabios (1.8.1-1) UNRELEASED; urgency=medium
+seabios (1.8.1-1) unstable; urgency=medium
 
   * new upstream release (1.8.1)
   * update debian/optionrom up to qemu commit b466e1731be837
     (Thu Dec 11 02:17:03 2014 +0100)
   * update standards-version (no changes needed)
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 18 Apr 2015 16:05:45 +0300
+ -- Michael Tokarev <mjt@tls.msk.ru>  Sat, 18 Apr 2015 16:21:20 +0300
 
 seabios (1.7.5-1) unstable; urgency=medium
 
