@@ -1,3 +1,9 @@
+seabios (1.8.1-2) unstable; urgency=medium
+
+  * reupload to unstable (previous upload was to experimental)
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 28 Apr 2015 16:46:53 +0300
+
 seabios (1.8.1-1) unstable; urgency=medium
 
   * new upstream release (1.8.1)
