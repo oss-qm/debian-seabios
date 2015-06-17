@@ -1,4 +1,4 @@
-seabios (1.8.2-1) UNRELEASED; urgency=medium
+seabios (1.8.2-1) unstable; urgency=medium
 
   * new upstream (minor) release (1.8.2)
   * add vgabios-virtio.bin (new in 1.8.2)
@@ -7,7 +7,7 @@ seabios (1.8.2-1) UNRELEASED; urgency=medium
     and make build reproducible (Closes: #782905)
   * update d/watch (Closes: #786413)
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 17 Jun 2015 11:29:13 +0300
+ -- Michael Tokarev <mjt@tls.msk.ru>  Wed, 17 Jun 2015 12:00:25 +0300
 
 seabios (1.8.1-2) unstable; urgency=medium
 
