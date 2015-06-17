@@ -5,6 +5,10 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/vendor.mk
+VERSION = $(DEB_VENDOR)-$(DEB_VERSION)
+
 VGABIOSES = cirrus stdvga virtio vmware qxl isavga
 VGABIOS_TARGETS = $(addprefix build/vgabios-, $(addsuffix .bin, $(VGABIOSES)))
 BUILD_TARGETS = build/bios.bin build/bios-256k.bin \
@@ -28,7 +32,7 @@ if [ ! -e $$d/.config.old ]; then \
  done > $$d/.config; \
  $(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ oldnoconfig; \
 fi; \
-$(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ $$d/$1.bin; \
+$(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ VERSION="${VERSION}" $$d/$1.bin; \
 rm -f $@; ln $$d/$1.bin $@
 endef
 
