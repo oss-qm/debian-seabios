@@ -9,13 +9,13 @@
 #include "config.h" // CONFIG_*
 #include "dev-q35.h" // Q35_HOST_BRIDGE_PCIEXBAR_ADDR
 #include "dev-piix.h" // PIIX_*
+#include "e820map.h" // e820_add
 #include "hw/ata.h" // PORT_ATA1_CMD_BASE
 #include "hw/pci.h" // pci_config_readl
 #include "hw/pci_ids.h" // PCI_VENDOR_ID_INTEL
 #include "hw/pci_regs.h" // PCI_COMMAND
 #include "list.h" // struct hlist_node
 #include "malloc.h" // free
-#include "memmap.h" // add_e820
 #include "output.h" // dprintf
 #include "paravirt.h" // RamSize
 #include "romfile.h" // romfile_loadint
@@ -183,6 +183,11 @@ static void mch_isa_bridge_setup(struct pci_device *dev, void *arg)
     /* acpi enable, SCI: IRQ9 000b = irq9*/
     pci_config_writeb(bdf, ICH9_LPC_ACPI_CTRL, ICH9_LPC_ACPI_CTRL_ACPI_EN);
 
+    /* set root complex register block BAR */
+    pci_config_writel(bdf, ICH9_LPC_RCBA,
+                      ICH9_LPC_RCBA_ADDR | ICH9_LPC_RCBA_EN);
+    e820_add(ICH9_LPC_RCBA_ADDR, 16*1024, E820_RESERVED);
+
     acpi_pm1a_cnt = acpi_pm_base + 0x04;
     pmtimer_setup(acpi_pm_base + 0x08);
 }
@@ -316,6 +321,10 @@ static void pci_bios_init_device(struct pci_device *pci)
     /* enable memory mappings */
     pci_config_maskw(bdf, PCI_COMMAND, 0,
                      PCI_COMMAND_IO | PCI_COMMAND_MEMORY | PCI_COMMAND_SERR);
+    /* enable SERR# for forwarding */
+    if (pci->header_type & PCI_HEADER_TYPE_BRIDGE)
+        pci_config_maskw(bdf, PCI_BRIDGE_CONTROL, 0,
+                         PCI_BRIDGE_CTL_SERR);
 }
 
 static void pci_bios_init_devices(void)
@@ -391,7 +400,7 @@ static void mch_mem_addr_setup(struct pci_device *dev, void *arg)
     pci_config_writel(bdf, Q35_HOST_BRIDGE_PCIEXBAR, 0);
     pci_config_writel(bdf, Q35_HOST_BRIDGE_PCIEXBAR + 4, upper);
     pci_config_writel(bdf, Q35_HOST_BRIDGE_PCIEXBAR, lower);
-    add_e820(addr, size, E820_RESERVED);
+    e820_add(addr, size, E820_RESERVED);
 
     /* setup pci i/o window (above mmconfig) */
     pcimem_start = addr + size;
@@ -638,7 +647,7 @@ pci_region_create_entry(struct pci_bus *bus, struct pci_device *dev,
 
 static int pci_bus_hotplug_support(struct pci_bus *bus)
 {
-    u8 pcie_cap = pci_find_capability(bus->bus_dev, PCI_CAP_ID_EXP);
+    u8 pcie_cap = pci_find_capability(bus->bus_dev, PCI_CAP_ID_EXP, 0);
     u8 shpc_cap;
 
     if (pcie_cap) {
@@ -662,7 +671,7 @@ static int pci_bus_hotplug_support(struct pci_bus *bus)
         return downstream_port && slot_implemented;
     }
 
-    shpc_cap = pci_find_capability(bus->bus_dev, PCI_CAP_ID_SHPC);
+    shpc_cap = pci_find_capability(bus->bus_dev, PCI_CAP_ID_SHPC, 0);
     return !!shpc_cap;
 }
 

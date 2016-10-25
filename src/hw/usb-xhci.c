@@ -354,9 +354,11 @@ xhci_hub_reset(struct usbhub_s *hub, u32 port)
 
     switch (xhci_get_field(portsc, XHCI_PORTSC_PLS)) {
     case PLS_U0:
+        // A USB3 port - no reset necessary.
         rc = speed_from_xhci[xhci_get_field(portsc, XHCI_PORTSC_SPEED)];
         break;
     case PLS_POLLING:
+        // A USB2 port - perform device reset and wait for completion
         xhci_print_port_state(3, __func__, port, portsc);
         portsc |= XHCI_PORTSC_PR;
         writel(&xhci->pr[port].portsc, portsc);
@@ -465,7 +467,7 @@ configure_xhci(void *data)
     xhci->evts->cs = 1;
 
     reg = readl(&xhci->caps->hcsparams2);
-    u32 spb = reg >> 27;
+    u32 spb = (reg >> 21 & 0x1f) << 5 | reg >> 27;
     if (spb) {
         dprintf(3, "%s: setup %d scratch pad buffers\n", __func__, spb);
         u64 *spba = memalign_high(64, sizeof(*spba) * spb);
@@ -921,8 +923,14 @@ xhci_alloc_pipe(struct usbdevice_s *usbdev
     usb_desc2pipe(&pipe->pipe, usbdev, epdesc);
     pipe->epid = epid;
     pipe->reqs.cs = 1;
-    if (eptype == USB_ENDPOINT_XFER_INT)
+    if (eptype == USB_ENDPOINT_XFER_INT) {
         pipe->buf = malloc_high(pipe->pipe.maxpacket);
+        if (!pipe->buf) {
+            warn_noalloc();
+            free(pipe);
+            return NULL;
+        }
+    }
 
     // Allocate input context and initialize endpoint info.
     struct xhci_inctx *in = xhci_alloc_inctx(usbdev, epid);
@@ -988,6 +996,7 @@ xhci_alloc_pipe(struct usbdevice_s *usbdev
     return &pipe->pipe;
 
 fail:
+    free(pipe->buf);
     free(pipe);
     free(in);
     return NULL;
