@@ -224,7 +224,7 @@ sdcard_pio_transfer(struct sddrive_s *drive, int cmd, u32 addr
                     , void *data, int count)
 {
     // Send command
-    writel(&drive->regs->block_size, DISK_SECTOR_SIZE);
+    writew(&drive->regs->block_size, DISK_SECTOR_SIZE);
     writew(&drive->regs->block_count, count);
     int isread = cmd != SC_WRITE_SINGLE && cmd != SC_WRITE_MULTIPLE;
     u16 tmode = ((count > 1 ? ST_MULTIPLE|ST_AUTO_CMD12|ST_BLOCKCOUNT : 0)
@@ -493,7 +493,7 @@ sdcard_controller_setup(struct sdhci_s *regs, int prio)
     writew(&regs->irq_enable, 0x01ff);
     writew(&regs->irq_status, readw(&regs->irq_status));
     writew(&regs->error_signal, 0);
-    writew(&regs->error_irq_enable, 0x03ff);
+    writew(&regs->error_irq_enable, 0x01ff);
     writew(&regs->error_irq_status, readw(&regs->error_irq_status));
     writeb(&regs->timeout_control, 0x0e); // Set to max timeout
     int volt = sdcard_set_power(regs);
