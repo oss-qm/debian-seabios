@@ -1,0 +1,20 @@
+From: Kevin O'Connor <kevin@koconnor.net>
+Date: Tue Oct 25 12:09:41 2016 -0400
+Bug-Debian: http://bugs.debian.org/841546
+Subject: build: Add -fno-pie to the gcc flags when available
+Commit-Id: 589fe2803b110014a84dee2056f1e2fec744d2e6
+    
+Signed-off-by: Kevin O'Connor <kevin@koconnor.net>
+
+diff --git a/Makefile b/Makefile
+index 1916ecf..3b94ee0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -63,6 +63,7 @@ COMMONCFLAGS := -I$(OUT) -Isrc -Os -MD -g \
+     -freg-struct-return -ffreestanding -fno-delete-null-pointer-checks \
+     -ffunction-sections -fdata-sections -fno-common -fno-merge-constants
+ COMMONCFLAGS += $(call cc-option,$(CC),-nopie,)
++COMMONCFLAGS += $(call cc-option,$(CC),-fno-pie,)
+ COMMONCFLAGS += $(call cc-option,$(CC),-fno-stack-protector,)
+ COMMONCFLAGS += $(call cc-option,$(CC),-fno-stack-protector-all,)
+ COMMONCFLAGS += $(call cc-option,$(CC),-fstack-check=no,)
