@@ -1,3 +1,15 @@
+seabios (1.9.3-1) unstable; urgency=medium
+
+  * update optionrom files from qemu-2.7.
+    This includes optionrom_dma.bin
+  * update to new upstream (1.9.3) release (Closes: #841985)
+  * strip a few new features from seabios-128k (Closes: #800429)
+    remove stale comment in there (Closes: #800426)
+  * update Standards-Version to 3.9.8 (no changes needed)
+  * update debhelper compat level to 9
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 25 Oct 2016 13:58:43 +0300
+
 seabios (1.8.2-1) unstable; urgency=medium
 
   * new upstream (minor) release (1.8.2)
