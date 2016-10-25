@@ -1,7 +1,7 @@
 LD = ld
 OBJCOPY = objcopy
 CC = cc
-CFLAGS = -O2 -m16 -Wa,-32 -ffreestanding -fno-stack-protector
+CFLAGS = -O2 -m16 -Wa,-32 -ffreestanding -fno-stack-protector -fno-pie
 
 all: extboot.bin kvmvapic.bin linuxboot.bin linuxboot_dma.bin multiboot.bin
 
