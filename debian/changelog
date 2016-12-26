@@ -4,6 +4,7 @@ seabios (1.10.1-1) UNRELEASED; urgency=medium
   * ensure no shipped firmware blobs are used, so that all
     iasl sources are being built during package build
   * disable BOOTSPLASH code for 128k (Closes: #846686)
+  * pass EXTRAVERSION to upstream make (Closes: #842203)
 
  -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 26 Dec 2016 23:42:29 +0300
 

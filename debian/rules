@@ -5,9 +5,10 @@
 # Uncomment this to turn on verbose mode.
 #export DH_VERBOSE=1
 
-include /usr/share/dpkg/pkg-info.mk
-include /usr/share/dpkg/vendor.mk
-VERSION = $(DEB_VENDOR)-$(DEB_VERSION)
+dpkg_late_eval ?= $(or $(value DPKG_CACHE_$(1)),$(eval DPKG_CACHE_$(1) := $(shell $(2)))$(value DPKG_CACHE_$(1)))
+DEB_VERSION = $(call dpkg_late_eval,DEB_VERSION,dpkg-parsechangelog -SVersion)
+# everything after last minus sign
+DEB_VERSION_RELEASE = $(call dpkg_late_eval,DEB_VERSION_RELEASE,echo '$(DEB_VERSION)' | sed -e 's/^.*-//')
 
 VGABIOSES = cirrus stdvga virtio vmware qxl isavga
 VGABIOS_TARGETS = $(addprefix build/vgabios-, $(addsuffix .bin, $(VGABIOSES)))
@@ -32,7 +33,7 @@ if [ ! -e $$d/.config.old ]; then \
  done > $$d/.config; \
  $(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ oldnoconfig; \
 fi; \
-$(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ VERSION="${VERSION}" $$d/$1.bin; \
+$(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ EXTRAVERSION="-${DEB_VERSION_RELEASE}" $$d/$1.bin; \
 rm -f $@; ln $$d/$1.bin $@
 endef
 
