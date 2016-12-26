@@ -11,7 +11,8 @@
 #include "byteorder.h" // be32_to_cpu
 #include "config.h" // CONFIG_QEMU
 #include "e820map.h" // e820_add
-#include "hw/pci.h" // create_pirtable
+#include "hw/pci.h" // pci_config_readw
+#include "hw/pcidevice.h" // pci_probe_devices
 #include "hw/pci_regs.h" // PCI_DEVICE_ID
 #include "hw/rtc.h" // CMOS_*
 #include "malloc.h" // malloc_tmp
@@ -163,8 +164,10 @@ qemu_platform_setup(void)
     smp_setup();
 
     // Create bios tables
-    pirtable_setup();
-    mptable_setup();
+    if (MaxCountCPUs <= 255) {
+        pirtable_setup();
+        mptable_setup();
+    }
     smbios_setup();
 
     if (CONFIG_FW_ROMFILE_LOAD) {
@@ -314,6 +317,44 @@ qemu_romfile_add(char *name, int select, int skip, int size)
     qfile->skip = skip;
     qfile->file.copy = qemu_cfg_read_file;
     romfile_add(&qfile->file);
+}
+
+static int
+qemu_romfile_get_fwcfg_entry(char *name, int *select)
+{
+    struct romfile_s *file = romfile_find(name);
+    if (!file)
+        return 0;
+    struct qemu_romfile_s *qfile;
+    qfile = container_of(file, struct qemu_romfile_s, file);
+    if (select)
+        *select = qfile->select;
+    return file->size;
+}
+
+static int boot_cpus_sel;
+static int boot_cpus_file_sz;
+
+u16
+qemu_init_present_cpus_count(void)
+{
+    u16 smp_count = romfile_loadint("etc/boot-cpus",
+                                    rtc_read(CMOS_BIOS_SMP_COUNT) + 1);
+    boot_cpus_file_sz =
+        qemu_romfile_get_fwcfg_entry("etc/boot-cpus", &boot_cpus_sel);
+    return smp_count;
+}
+
+u16
+qemu_get_present_cpus_count(void)
+{
+    u16 smp_count;
+    if (!boot_cpus_file_sz) {
+        smp_count = rtc_read(CMOS_BIOS_SMP_COUNT) + 1;
+    } else {
+        qemu_cfg_read_entry(&smp_count, boot_cpus_sel, boot_cpus_file_sz);
+    }
+    return smp_count;
 }
 
 struct e820_reservation {
