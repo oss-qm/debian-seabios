@@ -12,8 +12,8 @@ DEB_VERSION_RELEASE = $(call dpkg_late_eval,DEB_VERSION_RELEASE,echo '$(DEB_VERS
 
 VGABIOSES = cirrus stdvga virtio vmware qxl isavga
 VGABIOS_TARGETS = $(addprefix build/vgabios-, $(addsuffix .bin, $(VGABIOSES)))
-BUILD_TARGETS = build/bios.bin build/bios-256k.bin \
-		$(VGABIOS_TARGETS) build/optionrom-stamp
+BIOS_TARGETS = build/bios.bin build/bios-256k.bin ${VGABIOS_TARGETS}
+BUILD_TARGETS = $(BIOS_TARGETS) build/optionrom-stamp
 
 build build-arch build-indep: $(BUILD_TARGETS)
 
@@ -47,8 +47,14 @@ build/bios-256k.bin:
 # ensure it is actually built during build
 FWS = acpi-dsdt q35-acpi-dsdt ssdt-misc ssdt-pcihp ssdt-proc
 FW_FILES = $(addsuffix .hex,$(addprefix src/fw/,${FWS}))
-build/bios.bin build/bios-256k.bin: build/fw-stamp
-build/fw-stamp:
+
+${BIOS_TARGETS}: build/env-stamp
+build/env-stamp:
+# upstream checks for .git and .version in scripts/buildversion.py
+# .version comes in upstream tarball, and .git should not be there
+	[ ! -d .git ] || { echo "Directory .git exists, aborting" >&2; exit 1; }
+	[ -f .version ] || echo ${DEB_VERSION} | sed 's/-.*//' > .version
+# move out shipped .hex files and rebuild them
 	mkdir -p build/src/fw
 	for f in ${FW_FILES}; do [ -f $$f.sav -o ! -f $$f ] || mv $$f $$f.sav; done
 	rm -f ${FW_FILES}
