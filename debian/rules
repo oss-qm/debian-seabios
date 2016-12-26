@@ -38,7 +38,7 @@ endef
 
 build/bios.bin:
 # A stripped-down version of bios, to fit in 128Kb, for qemu <= 1.7
-	$(call build-bios,bios,QEMU=y ROM_SIZE=128 PVSCSI=n USB_XHCI=n USB_UAS=n XEN=n SDCARD=n TCGBIOS=n MPT_SCSI=n)
+	$(call build-bios,bios,QEMU=y ROM_SIZE=128 PVSCSI=n BOOTSPLASH=n USB_XHCI=n USB_UAS=n XEN=n SDCARD=n TCGBIOS=n MPT_SCSI=n)
 build/bios-256k.bin:
 	$(call build-bios,bios,QEMU=y ROM_SIZE=256)
 
