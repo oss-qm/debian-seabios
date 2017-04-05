@@ -1,3 +1,12 @@
+seabios (1.10.2-1) unstable; urgency=medium
+
+  * new upstream stable/bugfix release,
+    required for qemu 2.8.1+ due to ahci changes,
+    plus fixes for guest resume from S3
+    and ps/2 keyboard/mouse handling
+
+ -- Michael Tokarev <mjt@tls.msk.ru>  Mon, 03 Apr 2017 13:47:29 +0300
+
 seabios (1.10.1-1) unstable; urgency=medium
 
   * new upstream release
