@@ -1,8 +1,13 @@
-seabios (1.11.1-1) UNRELEASED; urgency=medium
+seabios (1.11.1-1) unstable; urgency=medium
 
   * new upstream release
+  * disable more (new) options for seabios-128k config
+  * always enable CONFIG_QEMU
+  * enable parallel build
+  * change Priority from extra to optional
+  * remove old Breaks for qemu < 0.14
 
- -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 10 Apr 2018 10:09:38 +0300
+ -- Michael Tokarev <mjt@tls.msk.ru>  Tue, 10 Apr 2018 11:00:47 +0300
 
 seabios (1.10.2-1) unstable; urgency=medium
 
