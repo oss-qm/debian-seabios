@@ -253,20 +253,6 @@ qemu_cfg_read(void *buf, int len)
 }
 
 static void
-qemu_cfg_write(void *buf, int len)
-{
-    if (len == 0) {
-        return;
-    }
-
-    if (qemu_cfg_dma_enabled()) {
-        qemu_cfg_dma_transfer(buf, len, QEMU_CFG_DMA_CTL_WRITE);
-    } else {
-        warn_internalerror();
-    }
-}
-
-static void
 qemu_cfg_skip(int len)
 {
     if (len == 0) {
@@ -294,18 +280,6 @@ qemu_cfg_read_entry(void *buf, int e, int len)
     }
 }
 
-static void
-qemu_cfg_write_entry(void *buf, int e, int len)
-{
-    if (qemu_cfg_dma_enabled()) {
-        u32 control = (e << 16) | QEMU_CFG_DMA_CTL_SELECT
-                        | QEMU_CFG_DMA_CTL_WRITE;
-        qemu_cfg_dma_transfer(buf, len, control);
-    } else {
-        warn_internalerror();
-    }
-}
-
 struct qemu_romfile_s {
     struct romfile_s file;
     int select, skip;
@@ -329,36 +303,6 @@ qemu_cfg_read_file(struct romfile_s *file, void *dst, u32 maxlen)
     return file->size;
 }
 
-// Bare-bones function for writing a file knowing only its unique
-// identifying key (select)
-int
-qemu_cfg_write_file_simple(void *src, u16 key, u32 offset, u32 len)
-{
-    if (offset == 0) {
-        /* Do it in one transfer */
-        qemu_cfg_write_entry(src, key, len);
-    } else {
-        qemu_cfg_select(key);
-        qemu_cfg_skip(offset);
-        qemu_cfg_write(src, len);
-    }
-    return len;
-}
-
-int
-qemu_cfg_write_file(void *src, struct romfile_s *file, u32 offset, u32 len)
-{
-    if ((offset + len) > file->size)
-        return -1;
-
-    if (!qemu_cfg_dma_enabled() || (file->copy != qemu_cfg_read_file)) {
-        warn_internalerror();
-        return -1;
-    }
-    return qemu_cfg_write_file_simple(src, qemu_get_romfile_key(file),
-                                      offset, len);
-}
-
 static void
 qemu_romfile_add(char *name, int select, int skip, int size)
 {
@@ -374,18 +318,6 @@ qemu_romfile_add(char *name, int select, int skip, int size)
     qfile->skip = skip;
     qfile->file.copy = qemu_cfg_read_file;
     romfile_add(&qfile->file);
-}
-
-u16
-qemu_get_romfile_key(struct romfile_s *file)
-{
-    struct qemu_romfile_s *qfile;
-    if (file->copy != qemu_cfg_read_file) {
-        warn_internalerror();
-        return 0;
-    }
-    qfile = container_of(file, struct qemu_romfile_s, file);
-    return qfile->select;
 }
 
 u16
