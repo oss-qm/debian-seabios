@@ -14,6 +14,7 @@
 #include "hw/pci.h" // pci_config_readw
 #include "hw/pcidevice.h" // pci_probe_devices
 #include "hw/pci_regs.h" // PCI_DEVICE_ID
+#include "hw/serialio.h" // PORT_SERIAL1
 #include "hw/rtc.h" // CMOS_*
 #include "malloc.h" // malloc_tmp
 #include "output.h" // dprintf
@@ -32,8 +33,15 @@ u32 RamSize;
 u64 RamSizeOver4G;
 // Type of emulator platform.
 int PlatformRunningOn VARFSEG;
+// cfg enabled
+int cfg_enabled = 0;
 // cfg_dma enabled
 int cfg_dma_enabled = 0;
+
+inline int qemu_cfg_enabled(void)
+{
+    return cfg_enabled;
+}
 
 inline int qemu_cfg_dma_enabled(void)
 {
@@ -203,8 +211,10 @@ qemu_platform_setup(void)
 #define QEMU_CFG_SIGNATURE              0x00
 #define QEMU_CFG_ID                     0x01
 #define QEMU_CFG_UUID                   0x02
+#define QEMU_CFG_NOGRAPHIC              0x04
 #define QEMU_CFG_NUMA                   0x0d
 #define QEMU_CFG_BOOT_MENU              0x0e
+#define QEMU_CFG_NB_CPUS                0x05
 #define QEMU_CFG_MAX_CPUS               0x0f
 #define QEMU_CFG_FILE_DIR               0x19
 #define QEMU_CFG_ARCH_LOCAL             0x8000
@@ -252,6 +262,20 @@ qemu_cfg_read(void *buf, int len)
 }
 
 static void
+qemu_cfg_write(void *buf, int len)
+{
+    if (len == 0) {
+        return;
+    }
+
+    if (qemu_cfg_dma_enabled()) {
+        qemu_cfg_dma_transfer(buf, len, QEMU_CFG_DMA_CTL_WRITE);
+    } else {
+        warn_internalerror();
+    }
+}
+
+static void
 qemu_cfg_skip(int len)
 {
     if (len == 0) {
@@ -279,6 +303,18 @@ qemu_cfg_read_entry(void *buf, int e, int len)
     }
 }
 
+static void
+qemu_cfg_write_entry(void *buf, int e, int len)
+{
+    if (qemu_cfg_dma_enabled()) {
+        u32 control = (e << 16) | QEMU_CFG_DMA_CTL_SELECT
+                        | QEMU_CFG_DMA_CTL_WRITE;
+        qemu_cfg_dma_transfer(buf, len, control);
+    } else {
+        warn_internalerror();
+    }
+}
+
 struct qemu_romfile_s {
     struct romfile_s file;
     int select, skip;
@@ -302,6 +338,36 @@ qemu_cfg_read_file(struct romfile_s *file, void *dst, u32 maxlen)
     return file->size;
 }
 
+// Bare-bones function for writing a file knowing only its unique
+// identifying key (select)
+int
+qemu_cfg_write_file_simple(void *src, u16 key, u32 offset, u32 len)
+{
+    if (offset == 0) {
+        /* Do it in one transfer */
+        qemu_cfg_write_entry(src, key, len);
+    } else {
+        qemu_cfg_select(key);
+        qemu_cfg_skip(offset);
+        qemu_cfg_write(src, len);
+    }
+    return len;
+}
+
+int
+qemu_cfg_write_file(void *src, struct romfile_s *file, u32 offset, u32 len)
+{
+    if ((offset + len) > file->size)
+        return -1;
+
+    if (!qemu_cfg_dma_enabled() || (file->copy != qemu_cfg_read_file)) {
+        warn_internalerror();
+        return -1;
+    }
+    return qemu_cfg_write_file_simple(src, qemu_get_romfile_key(file),
+                                      offset, len);
+}
+
 static void
 qemu_romfile_add(char *name, int select, int skip, int size)
 {
@@ -319,40 +385,28 @@ qemu_romfile_add(char *name, int select, int skip, int size)
     romfile_add(&qfile->file);
 }
 
-static int
-qemu_romfile_get_fwcfg_entry(char *name, int *select)
-{
-    struct romfile_s *file = romfile_find(name);
-    if (!file)
-        return 0;
-    struct qemu_romfile_s *qfile;
-    qfile = container_of(file, struct qemu_romfile_s, file);
-    if (select)
-        *select = qfile->select;
-    return file->size;
-}
-
-static int boot_cpus_sel;
-static int boot_cpus_file_sz;
-
 u16
-qemu_init_present_cpus_count(void)
+qemu_get_romfile_key(struct romfile_s *file)
 {
-    u16 smp_count = romfile_loadint("etc/boot-cpus",
-                                    rtc_read(CMOS_BIOS_SMP_COUNT) + 1);
-    boot_cpus_file_sz =
-        qemu_romfile_get_fwcfg_entry("etc/boot-cpus", &boot_cpus_sel);
-    return smp_count;
+    struct qemu_romfile_s *qfile;
+    if (file->copy != qemu_cfg_read_file) {
+        warn_internalerror();
+        return 0;
+    }
+    qfile = container_of(file, struct qemu_romfile_s, file);
+    return qfile->select;
 }
 
 u16
 qemu_get_present_cpus_count(void)
 {
-    u16 smp_count;
-    if (!boot_cpus_file_sz) {
-        smp_count = rtc_read(CMOS_BIOS_SMP_COUNT) + 1;
-    } else {
-        qemu_cfg_read_entry(&smp_count, boot_cpus_sel, boot_cpus_file_sz);
+    u16 smp_count = 0;
+    if (qemu_cfg_enabled()) {
+        qemu_cfg_read_entry(&smp_count, QEMU_CFG_NB_CPUS, sizeof(smp_count));
+    }
+    u16 cmos_cpu_count = rtc_read(CMOS_BIOS_SMP_COUNT) + 1;
+    if (smp_count < cmos_cpu_count) {
+        smp_count = cmos_cpu_count;
     }
     return smp_count;
 }
@@ -459,6 +513,12 @@ qemu_cfg_legacy(void)
     qemu_romfile_add("etc/irq0-override", QEMU_CFG_IRQ0_OVERRIDE, 0, 1);
     qemu_romfile_add("etc/max-cpus", QEMU_CFG_MAX_CPUS, 0, 2);
 
+    // serial console
+    u16 nogfx = 0;
+    qemu_cfg_read_entry(&nogfx, QEMU_CFG_NOGRAPHIC, sizeof(nogfx));
+    if (nogfx)
+        const_romfile_add_int("etc/sercon-port", PORT_SERIAL1);
+
     // NUMA data
     u64 numacount;
     qemu_cfg_read_entry(&numacount, QEMU_CFG_NUMA, sizeof(numacount));
@@ -528,6 +588,7 @@ void qemu_cfg_init(void)
             return;
 
     dprintf(1, "Found QEMU fw_cfg\n");
+    cfg_enabled = 1;
 
     // Detect DMA interface.
     u32 id;
