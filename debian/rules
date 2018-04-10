@@ -22,7 +22,7 @@ build build-arch build-indep: $(BUILD_TARGETS)
 # $2: config options to put into .config without CONFIG_ prefix
 # $@: where to put output; build dir will be $(basename $@)
 define build-bios
-set -e; d=$(basename $@); \
++set -e; d=$(basename $@); \
 if [ ! -e $$d/.config.old ]; then \
  rm -rf $$d; mkdir -p $$d; \
  for x in QEMU=y $2; do \
@@ -31,7 +31,7 @@ if [ ! -e $$d/.config.old ]; then \
    (*) echo CONFIG_$$x;; \
   esac; \
  done > $$d/.config; \
- $(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ oldnoconfig; \
+ $(MAKE) -j1 KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ oldnoconfig; \
 fi; \
 $(MAKE) KCONFIG_CONFIG=$(CURDIR)/$$d/.config OUT=$$d/ EXTRAVERSION="-${DEB_VERSION_RELEASE}" $$d/$1.bin; \
 rm -f $@; ln $$d/$1.bin $@
