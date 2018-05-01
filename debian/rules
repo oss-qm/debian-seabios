@@ -52,7 +52,7 @@ ${BIOS_TARGETS}: build/env-stamp
 build/env-stamp:
 # upstream checks for .git and .version in scripts/buildversion.py
 # .version comes in upstream tarball, and .git should not be there
-	[ ! -d .git ] || { echo "Directory .git exists, aborting" >&2; exit 1; }
+#	[ ! -d .git ] || { echo "Directory .git exists, aborting" >&2; exit 1; }
 	[ -f .version ] || echo ${DEB_VERSION} | sed 's/-.*//' > .version
 # move out shipped .hex files and rebuild them
 	mkdir -p build/src/fw
